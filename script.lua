@@ -1,9 +1,9 @@
 --[[ 
-    ASYLUM ELITE V13.0 - FULL RELEASE
-    - RESTORED: Full Box ESP & Skeleton ESP Rendering
-    - RESTORED: Chams / Glow Highlighting
-    - INCLUDED: All Silent Aim Methods & Camera Snap
-    - INCLUDED: All Sliders & Target Part Selector
+    ASYLUM ELITE V13.2
+    - FIXED: ESP Ghosting/Stuck on Screen (Strict onScreen Check)
+    - ADDED: Tracers (Bottom of screen to player)
+    - INCLUDED: Ghost ESP, Chams, Boxes, Skeletons
+    - INCLUDED: Silent Aim (Methods 1 & 2) + Target Part Selector
 ]]
 
 local UIS = game:GetService("UserInputService")
@@ -29,6 +29,8 @@ getgenv().Config = {
     ESPEnabled = false,
     SkeletonEnabled = false,
     ChamsEnabled = false,
+    GhostESP = false,
+    TracerEnabled = false,
     AimPart = "Head",
     TargetMode = "All",
 }
@@ -38,7 +40,7 @@ local FOVCircle = Drawing.new("Circle")
 FOVCircle.Thickness = 1.5; FOVCircle.Color = Color3.fromRGB(0, 150, 255); FOVCircle.Visible = false
 
 --// GUI CORE
-local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui); ScreenGui.Name = "AsylumV13"; ScreenGui.ResetOnSpawn = false
+local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui); ScreenGui.Name = "AsylumV13_2"; ScreenGui.ResetOnSpawn = false
 local Main = Instance.new("Frame", ScreenGui); Main.Size = UDim2.new(0, 600, 0, 420); Main.Position = UDim2.new(0.5, -300, 0.5, -210); Main.BackgroundColor3 = Color3.fromRGB(15, 15, 20); Main.BorderSizePixel = 0; Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
 local Sidebar = Instance.new("Frame", Main); Sidebar.Size = UDim2.new(0, 160, 1, 0); Sidebar.BackgroundColor3 = Color3.fromRGB(20, 20, 30); Sidebar.BorderSizePixel = 0; Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 12)
 local SidebarTitle = Instance.new("TextLabel", Sidebar); SidebarTitle.Size = UDim2.new(1, 0, 0, 60); SidebarTitle.Text = "ASYLUM ELITE"; SidebarTitle.TextColor3 = Color3.fromRGB(0, 150, 255); SidebarTitle.Font = "GothamBold"; SidebarTitle.TextSize = 22; SidebarTitle.BackgroundTransparency = 1
@@ -91,96 +93,101 @@ local function AddDropdown(p, t, opts, k)
     end
 end
 
---// POPULATE
+--// POPULATE TABS
 AddDropdown(Tabs.Aim.Frame, "TARGET MODE", {"All", "Players", "NPCs"}, "TargetMode")
 AddDropdown(Tabs.Aim.Frame, "TARGET PART", {"Head", "UpperTorso", "HumanoidRootPart"}, "AimPart")
 AddToggle(Tabs.Aim.Frame, "Team Check", "TeamCheck"); AddToggle(Tabs.Aim.Frame, "Wall Check", "WallCheck")
 AddToggle(Tabs.Aim.Frame, "Show FOV Circle", "ShowFOV"); AddSlider(Tabs.Aim.Frame, "FOV Radius", 10, 800, "FOVRadius")
 AddToggle(Tabs.Aim.Frame, "Camera Snap", "CameraAim"); AddSlider(Tabs.Aim.Frame, "Smoothness", 0.01, 1, "Smoothness", true)
 AddToggle(Tabs.Aim.Frame, "Silent Method 1", "Method1_Silent"); AddToggle(Tabs.Aim.Frame, "Silent Method 2", "Method2_Silent")
-AddToggle(Tabs.Visuals.Frame, "Box ESP", "ESPEnabled"); AddToggle(Tabs.Visuals.Frame, "Skeleton ESP", "SkeletonEnabled"); AddToggle(Tabs.Visuals.Frame, "Chams (Glow)", "ChamsEnabled")
+
+AddToggle(Tabs.Visuals.Frame, "Box ESP", "ESPEnabled")
+AddToggle(Tabs.Visuals.Frame, "Skeleton ESP", "SkeletonEnabled")
+AddToggle(Tabs.Visuals.Frame, "Tracer ESP", "TracerEnabled")
+AddToggle(Tabs.Visuals.Frame, "Chams (Glow)", "ChamsEnabled")
+AddToggle(Tabs.Visuals.Frame, "Ghost ESP (X-Ray)", "GhostESP")
+
 AddToggle(Tabs.Misc.Frame, "Hitbox Expander", "HitboxEnabled"); AddSlider(Tabs.Misc.Frame, "Hitbox Size", 2, 50, "HitboxSize")
 
---// ESP SYSTEM
+--// ESP CACHE ENGINE
 local ESP_Cache = {}
-local function CreateESP(p)
-    local objects = {
+local function CreateESP(char)
+    local data = {
         Box = Drawing.new("Square"),
+        Tracer = Drawing.new("Line"),
         Skeleton = {},
         Highlight = Instance.new("Highlight")
     }
-    objects.Box.Thickness = 1; objects.Box.Filled = false; objects.Box.Color = Color3.new(1,1,1)
-    ESP_Cache[p] = objects
+    data.Box.Thickness = 1; data.Box.Color = Color3.new(1,1,1); data.Box.Visible = false
+    data.Tracer.Thickness = 1; data.Tracer.Color = Color3.new(1,1,1); data.Tracer.Visible = false
+    data.Highlight.Parent = char; data.Highlight.Enabled = false
+    ESP_Cache[char] = data
 end
 
-local function GetBones(char)
-    local bones = {}
-    local function add(b1, b2) table.insert(bones, {char:FindFirstChild(b1), char:FindFirstChild(b2)}) end
-    add("Head", "UpperTorso"); add("UpperTorso", "LowerTorso"); add("UpperTorso", "LeftUpperArm")
-    add("LeftUpperArm", "LeftLowerArm"); add("UpperTorso", "RightUpperArm"); add("RightUpperArm", "RightLowerArm")
-    add("LowerTorso", "LeftUpperLeg"); add("LeftUpperLeg", "LeftLowerLeg"); add("LowerTorso", "RightUpperLeg")
-    add("RightUpperLeg", "RightLowerLeg")
-    return bones
-end
-
---// ENGINE & RENDER
+--// MAIN ENGINE LOOP
 local LockedTarget = nil; local IsRightClicking = false
 RunService.RenderStepped:Connect(function()
     FOVCircle.Visible = getgenv().Config.ShowFOV; FOVCircle.Radius = getgenv().Config.FOVRadius; FOVCircle.Position = UIS:GetMouseLocation()
     local potential, dist = nil, getgenv().Config.FOVRadius
-    
+
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("Model") and v:FindFirstChildOfClass("Humanoid") and v ~= LP.Character then
             local char = v; local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            -- Cleanup on death or missing components
             if not hum or hum.Health <= 0 then 
                 if ESP_Cache[char] then 
-                    ESP_Cache[char].Box.Visible = false
-                    for _, line in pairs(ESP_Cache[char].Skeleton) do line.Visible = false end
-                    if ESP_Cache[char].Highlight then ESP_Cache[char].Highlight.Enabled = false end
+                    ESP_Cache[char].Box.Visible = false; ESP_Cache[char].Tracer.Visible = false; ESP_Cache[char].Highlight.Enabled = false
+                    for _, l in pairs(ESP_Cache[char].Skeleton) do l.Visible = false end
+                end
+                continue 
+            end
+
+            local targetPlayer = Players:GetPlayerFromCharacter(char)
+            if getgenv().Config.TeamCheck and targetPlayer and targetPlayer.Team == LP.Team then 
+                if ESP_Cache[char] then 
+                    ESP_Cache[char].Box.Visible = false; ESP_Cache[char].Tracer.Visible = false; ESP_Cache[char].Highlight.Enabled = false
                 end
                 continue 
             end
             
-            local targetPlayer = Players:GetPlayerFromCharacter(char)
-            if getgenv().Config.TeamCheck and targetPlayer and targetPlayer.Team == LP.Team then continue end
-            
             if not ESP_Cache[char] then CreateESP(char) end
             local data = ESP_Cache[char]
-            
-            -- CHAMS
-            if data.Highlight then
-                data.Highlight.Parent = char; data.Highlight.Enabled = getgenv().Config.ChamsEnabled
-                data.Highlight.FillColor = Color3.fromRGB(0, 150, 255); data.Highlight.OutlineColor = Color3.new(1,1,1)
-            end
+
+            -- HIGHLIGHT LOGIC
+            data.Highlight.Enabled = (getgenv().Config.ChamsEnabled or getgenv().Config.GhostESP)
+            data.Highlight.DepthMode = getgenv().Config.GhostESP and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+            data.Highlight.FillColor = Color3.fromRGB(0, 150, 255)
 
             local root = char:FindFirstChild("HumanoidRootPart")
             if root then
                 local pos, onScr = Camera:WorldToViewportPoint(root.Position)
                 
-                -- BOX ESP
+                -- BOX ESP (Strict onScr check)
                 if onScr and getgenv().Config.ESPEnabled then
-                    local sizeX = 2000 / pos.Z; local sizeY = 3000 / pos.Z
-                    data.Box.Visible = true; data.Box.Size = Vector2.new(sizeX, sizeY)
-                    data.Box.Position = Vector2.new(pos.X - sizeX/2, pos.Y - sizeY/2)
+                    local sX, sY = 2000/pos.Z, 3000/pos.Z
+                    data.Box.Visible = true; data.Box.Size = Vector2.new(sX, sY); data.Box.Position = Vector2.new(pos.X-sX/2, pos.Y-sY/2)
                 else data.Box.Visible = false end
+
+                -- TRACER ESP
+                if onScr and getgenv().Config.TracerEnabled then
+                    data.Tracer.Visible = true; data.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y); data.Tracer.To = Vector2.new(pos.X, pos.Y)
+                else data.Tracer.Visible = false end
 
                 -- SKELETON ESP
                 if onScr and getgenv().Config.SkeletonEnabled then
-                    local bones = GetBones(char)
-                    for i, boneSet in pairs(bones) do
-                        if not data.Skeleton[i] then data.Skeleton[i] = Drawing.new("Line"); data.Skeleton[i].Thickness = 1; data.Skeleton[i].Color = Color3.new(1,1,1) end
-                        local b1, b2 = boneSet[1], boneSet[2]
+                    local bones = {{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"}}
+                    for i, set in pairs(bones) do
+                        if not data.Skeleton[i] then data.Skeleton[i] = Drawing.new("Line"); data.Skeleton[i].Color = Color3.new(1,1,1) end
+                        local b1, b2 = char:FindFirstChild(set[1]), char:FindFirstChild(set[2])
                         if b1 and b2 then
-                            local p1, o1 = Camera:WorldToViewportPoint(b1.Position)
-                            local p2, o2 = Camera:WorldToViewportPoint(b2.Position)
-                            if o1 and o2 then
-                                data.Skeleton[i].Visible = true; data.Skeleton[i].From = Vector2.new(p1.X, p1.Y); data.Skeleton[i].To = Vector2.new(p2.X, p2.Y)
-                            else data.Skeleton[i].Visible = false end
-                        end
+                            local p1, o1 = Camera:WorldToViewportPoint(b1.Position); local p2, o2 = Camera:WorldToViewportPoint(b2.Position)
+                            if o1 and o2 then data.Skeleton[i].Visible = true; data.Skeleton[i].From = Vector2.new(p1.X, p1.Y); data.Skeleton[i].To = Vector2.new(p2.X, p2.Y) else data.Skeleton[i].Visible = false end
+                        else data.Skeleton[i].Visible = false end
                     end
                 else for _, l in pairs(data.Skeleton) do l.Visible = false end end
 
-                -- AIMBOT LOGIC
+                -- AIMBOT
                 local mode = getgenv().Config.TargetMode
                 if (mode == "All") or (mode == "Players" and targetPlayer) or (mode == "NPCs" and not targetPlayer) then
                     local aimp = char:FindFirstChild(getgenv().Config.AimPart) or root
@@ -191,8 +198,11 @@ RunService.RenderStepped:Connect(function()
                     end
                 end
                 
-                -- HITBOX EXPANDER
+                -- HITBOX
                 if getgenv().Config.HitboxEnabled then root.Size = Vector3.new(getgenv().Config.HitboxSize, getgenv().Config.HitboxSize, getgenv().Config.HitboxSize); root.Transparency = 0.7; root.CanCollide = false else root.Size = Vector3.new(2,2,1); root.Transparency = 1 end
+            else
+                -- If root is missing, hide everything for this char
+                data.Box.Visible = false; data.Tracer.Visible = false; for _, l in pairs(data.Skeleton) do l.Visible = false end
             end
         end
     end
@@ -219,14 +229,13 @@ local oldI; oldI = hookmetamethod(game, "__index", function(self, idx)
     return oldI(self, idx)
 end)
 
---// INPUTS
+--// INPUTS & DRAGGING
 UIS.InputBegan:Connect(function(i, c)
     if not c and i.KeyCode == Enum.KeyCode.F5 then Main.Visible = not Main.Visible end
     if not c and i.UserInputType == Enum.UserInputType.MouseButton2 then IsRightClicking = true end
 end)
 UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton2 then IsRightClicking = false end end)
 
---// DRAGGING
 local drag, dPos, mPos; Sidebar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; dPos = Main.Position; mPos = i.Position end end)
 UIS.InputChanged:Connect(function(i) if drag and i.UserInputType == Enum.UserInputType.MouseMovement then local delta = i.Position - mPos; Main.Position = UDim2.new(dPos.X.Scale, dPos.X.Offset + delta.X, dPos.Y.Scale, dPos.Y.Offset + delta.Y) end end)
 UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
