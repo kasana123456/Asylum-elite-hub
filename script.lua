@@ -1,9 +1,9 @@
 --[[ 
-    ASYLUM ELITE V13.6
-    - FIXED: Dropdown and Slider text bugs.
-    - FIXED: NPC ESP instant-wipe on death.
-    - ADDED: Name & Health ESP.
-    - UI: Strictly separated Target Part (Top) and Target Mode (Bottom).
+    ASYLUM ELITE V13.7
+    - FIXED: Scrolling Frame (Added AbsoluteContentSize calculation).
+    - FIXED: Dropdown Text (Separated Label and Button for clarity).
+    - FIXED: Z-Index Layering (Dropdowns now appear on top of everything).
+    - RETAINED: All ESP, Aim, and Cleanup logic.
 ]]
 
 local UIS = game:GetService("UserInputService")
@@ -13,7 +13,7 @@ local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LP:GetMouse()
 
---// Global Config
+--// Global Config (Defaults)
 getgenv().Config = {
     CameraAim = false,
     Method1_Silent = false,
@@ -26,7 +26,7 @@ getgenv().Config = {
     HitboxEnabled = false,
     HitboxSize = 10,
     ESPEnabled = false,
-    NameESP = false, -- NEW
+    NameESP = false,
     TracerEnabled = false,
     ChamsEnabled = false,
     GhostESP = false,
@@ -40,15 +40,34 @@ local FOVCircle = Drawing.new("Circle")
 FOVCircle.Thickness = 1.5; FOVCircle.Color = getgenv().Config.ESPColor; FOVCircle.Visible = false
 
 --// UI Construction
-local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui); ScreenGui.Name = "AsylumV13_6"; ScreenGui.ResetOnSpawn = false
+local ScreenGui = Instance.new("ScreenGui", LP.PlayerGui); ScreenGui.Name = "AsylumV13_7"; ScreenGui.ResetOnSpawn = false
 local Main = Instance.new("Frame", ScreenGui); Main.Size = UDim2.new(0, 550, 0, 450); Main.Position = UDim2.new(0.5, -275, 0.5, -225); Main.BackgroundColor3 = Color3.fromRGB(15, 15, 18); Main.BorderSizePixel = 0; Instance.new("UICorner", Main)
 local Sidebar = Instance.new("Frame", Main); Sidebar.Size = UDim2.new(0, 150, 1, 0); Sidebar.BackgroundColor3 = Color3.fromRGB(20, 20, 25); Sidebar.BorderSizePixel = 0; Instance.new("UICorner", Sidebar)
-local Container = Instance.new("Frame", Main); Container.Size = UDim2.new(1, -170, 1, -20); Container.Position = UDim2.new(0, 160, 0, 10); Container.BackgroundTransparency = 1
+local Title = Instance.new("TextLabel", Sidebar); Title.Size = UDim2.new(1, 0, 0, 50); Title.Text = "ASYLUM"; Title.TextColor3 = Color3.fromRGB(0, 255, 255); Title.Font = "GothamBold"; Title.TextSize = 24; Title.BackgroundTransparency = 1
+local Container = Instance.new("Frame", Main); Container.Size = UDim2.new(1, -160, 1, -20); Container.Position = UDim2.new(0, 160, 0, 10); Container.BackgroundTransparency = 1
 
 local Tabs = { Aim = {}, Visuals = {}, Misc = {} }
+
+--// Tab System
 local function CreateTab(name)
-    local f = Instance.new("ScrollingFrame", Container); f.Size = UDim2.new(1, 0, 1, 0); f.BackgroundTransparency = 1; f.Visible = false; f.ScrollBarThickness = 0; f.CanvasSize = UDim2.new(0,0,0,0); f.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    local layout = Instance.new("UIListLayout", f); layout.Padding = UDim.new(0, 8); layout.HorizontalAlignment = "Center"
+    local f = Instance.new("ScrollingFrame", Container)
+    f.Size = UDim2.new(1, 0, 1, 0)
+    f.BackgroundTransparency = 1
+    f.Visible = false
+    f.ScrollBarThickness = 4
+    f.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 255)
+    f.BorderSizePixel = 0
+    
+    local layout = Instance.new("UIListLayout", f)
+    layout.Padding = UDim.new(0, 10)
+    layout.HorizontalAlignment = "Center"
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    -- SCROLL FIX: Force CanvasSize to match content
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        f.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+    end)
+    
     Tabs[name].Frame = f
 end
 CreateTab("Aim"); CreateTab("Visuals"); CreateTab("Misc")
@@ -56,22 +75,22 @@ CreateTab("Aim"); CreateTab("Visuals"); CreateTab("Misc")
 local function ShowTab(name) for i, v in pairs(Tabs) do v.Frame.Visible = (i == name) end end
 local bIdx = 0
 local function TabBtn(name)
-    local b = Instance.new("TextButton", Sidebar); b.Size = UDim2.new(0.9, 0, 0, 40); b.Position = UDim2.new(0.05, 0, 0, 20 + (bIdx * 45)); b.BackgroundColor3 = Color3.fromRGB(30, 30, 40); b.Text = name; b.TextColor3 = Color3.new(1,1,1); b.Font = "GothamBold"; b.TextSize = 14; Instance.new("UICorner", b)
+    local b = Instance.new("TextButton", Sidebar); b.Size = UDim2.new(0.9, 0, 0, 40); b.Position = UDim2.new(0.05, 0, 0, 60 + (bIdx * 45)); b.BackgroundColor3 = Color3.fromRGB(30, 30, 40); b.Text = name; b.TextColor3 = Color3.new(1,1,1); b.Font = "GothamBold"; b.TextSize = 14; Instance.new("UICorner", b)
     b.MouseButton1Click:Connect(function() ShowTab(name) end); bIdx = bIdx + 1
 end
 TabBtn("Aim"); TabBtn("Visuals"); TabBtn("Misc"); ShowTab("Aim")
 
---// Refactored UI Components
+--// UI Components (Refixed)
 local function AddToggle(p, text, key)
-    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 35); f.BackgroundTransparency = 1
-    local lbl = Instance.new("TextLabel", f); lbl.Size = UDim2.new(1, -50, 1, 0); lbl.Text = text; lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = "Gotham"; lbl.TextSize = 14; lbl.TextXAlignment = "Left"; lbl.BackgroundTransparency = 1
-    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 35, 0, 20); btn.Position = UDim2.new(1, -40, 0.5, -10); btn.Text = ""; btn.BackgroundColor3 = getgenv().Config[key] and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(50, 50, 60); Instance.new("UICorner", btn)
+    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 40); f.BackgroundTransparency = 1
+    local lbl = Instance.new("TextLabel", f); lbl.Size = UDim2.new(0.7, 0, 1, 0); lbl.Text = text; lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = "Gotham"; lbl.TextSize = 14; lbl.TextXAlignment = "Left"; lbl.BackgroundTransparency = 1
+    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(0, 40, 0, 20); btn.Position = UDim2.new(1, -45, 0.5, -10); btn.Text = ""; btn.BackgroundColor3 = getgenv().Config[key] and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(50, 50, 60); Instance.new("UICorner", btn)
     btn.MouseButton1Click:Connect(function() getgenv().Config[key] = not getgenv().Config[key]; btn.BackgroundColor3 = getgenv().Config[key] and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(50, 50, 60) end)
 end
 
 local function AddSlider(p, text, min, max, key, decimal)
-    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 45); f.BackgroundTransparency = 1
-    local lbl = Instance.new("TextLabel", f); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.Text = text .. ": " .. tostring(getgenv().Config[key]); lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = "Gotham"; lbl.TextSize = 12; lbl.TextXAlignment = "Left"; lbl.BackgroundTransparency = 1
+    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 55); f.BackgroundTransparency = 1
+    local lbl = Instance.new("TextLabel", f); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.Text = text .. ": " .. tostring(getgenv().Config[key]); lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = "Gotham"; lbl.TextSize = 13; lbl.TextXAlignment = "Left"; lbl.BackgroundTransparency = 1
     local bg = Instance.new("Frame", f); bg.Size = UDim2.new(1, 0, 0, 4); bg.Position = UDim2.new(0, 0, 0.7, 0); bg.BackgroundColor3 = Color3.fromRGB(45, 45, 55); Instance.new("UICorner", bg)
     local fill = Instance.new("Frame", bg); fill.Size = UDim2.new((getgenv().Config[key]-min)/(max-min), 0, 1, 0); fill.BackgroundColor3 = Color3.fromRGB(0, 255, 255); Instance.new("UICorner", fill)
     
@@ -91,18 +110,33 @@ local function AddSlider(p, text, min, max, key, decimal)
 end
 
 local function AddDropdown(p, text, options, key)
-    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 35); f.BackgroundTransparency = 1; f.ZIndex = 50
-    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(1, 0, 1, 0); btn.BackgroundColor3 = Color3.fromRGB(30, 30, 35); btn.Text = text .. ": " .. tostring(getgenv().Config[key]); btn.TextColor3 = Color3.new(1,1,1); btn.Font = "Gotham"; btn.TextSize = 13; Instance.new("UICorner", btn)
-    local drop = Instance.new("Frame", f); drop.Visible = false; drop.Size = UDim2.new(1, 0, 0, #options * 30); drop.Position = UDim2.new(0, 0, 1, 5); drop.BackgroundColor3 = Color3.fromRGB(25, 25, 30); drop.ZIndex = 51; Instance.new("UICorner", drop)
+    local f = Instance.new("Frame", p); f.Size = UDim2.new(0.95, 0, 0, 60); f.BackgroundTransparency = 1; f.ZIndex = 20
+    
+    -- Label above the button (Fixes missing text)
+    local lbl = Instance.new("TextLabel", f); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.Text = text; lbl.TextColor3 = Color3.new(1,1,1); lbl.Font = "GothamBold"; lbl.TextSize = 12; lbl.TextXAlignment = "Left"; lbl.BackgroundTransparency = 1
+    
+    -- The actual button
+    local btn = Instance.new("TextButton", f); btn.Size = UDim2.new(1, 0, 0, 30); btn.Position = UDim2.new(0, 0, 0, 25); btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50); btn.Text = tostring(getgenv().Config[key]); btn.TextColor3 = Color3.new(1,1,1); btn.Font = "Gotham"; btn.TextSize = 13; Instance.new("UICorner", btn)
+    
+    -- The list (Hidden by default)
+    local drop = Instance.new("Frame", f); drop.Visible = false; drop.Size = UDim2.new(1, 0, 0, #options * 30); drop.Position = UDim2.new(0, 0, 0, 60); drop.BackgroundColor3 = Color3.fromRGB(30, 30, 35); drop.ZIndex = 100; Instance.new("UICorner", drop) -- High ZIndex
     local layout = Instance.new("UIListLayout", drop); layout.Padding = UDim.new(0, 2)
-    btn.MouseButton1Click:Connect(function() drop.Visible = not drop.Visible end)
+    
+    btn.MouseButton1Click:Connect(function() 
+        drop.Visible = not drop.Visible 
+        -- Bring to front when clicked
+        f.ZIndex = drop.Visible and 100 or 20
+    end)
+    
     for _, opt in pairs(options) do
-        local oBtn = Instance.new("TextButton", drop); oBtn.Size = UDim2.new(1, 0, 0, 28); oBtn.BackgroundTransparency = 1; oBtn.Text = opt; oBtn.TextColor3 = Color3.new(0.8, 0.8, 0.8); oBtn.Font = "Gotham"; oBtn.TextSize = 12
-        oBtn.MouseButton1Click:Connect(function() getgenv().Config[key] = opt; btn.Text = text .. ": " .. opt; drop.Visible = false end)
+        local oBtn = Instance.new("TextButton", drop); oBtn.Size = UDim2.new(1, 0, 0, 28); oBtn.BackgroundTransparency = 1; oBtn.Text = opt; oBtn.TextColor3 = Color3.new(0.8, 0.8, 0.8); oBtn.Font = "Gotham"; oBtn.TextSize = 12; oBtn.ZIndex = 101
+        oBtn.MouseButton1Click:Connect(function() 
+            getgenv().Config[key] = opt; btn.Text = opt; drop.Visible = false; f.ZIndex = 20 
+        end)
     end
 end
 
---// Populate UI (Fixed Separation)
+--// POPULATE AIM (Separated)
 AddDropdown(Tabs.Aim.Frame, "TARGET PART", {"Head", "UpperTorso", "HumanoidRootPart"}, "AimPart")
 AddToggle(Tabs.Aim.Frame, "Silent Aim (V1)", "Method1_Silent")
 AddToggle(Tabs.Aim.Frame, "Silent Aim (V2)", "Method2_Silent")
@@ -113,16 +147,19 @@ AddToggle(Tabs.Aim.Frame, "Team Check", "TeamCheck")
 AddToggle(Tabs.Aim.Frame, "Wall Check", "WallCheck")
 AddDropdown(Tabs.Aim.Frame, "TARGET MODE", {"All", "Players", "NPCs"}, "TargetMode")
 
+--// POPULATE VISUALS
 AddToggle(Tabs.Visuals.Frame, "Box ESP", "ESPEnabled")
 AddToggle(Tabs.Visuals.Frame, "Name & Health", "NameESP")
 AddToggle(Tabs.Visuals.Frame, "Tracers", "TracerEnabled")
 AddToggle(Tabs.Visuals.Frame, "Chams", "ChamsEnabled")
 AddToggle(Tabs.Visuals.Frame, "Ghost (X-Ray)", "GhostESP")
+AddToggle(Tabs.Visuals.Frame, "Show FOV Circle", "ShowFOV")
 
+--// POPULATE MISC
 AddToggle(Tabs.Misc.Frame, "Hitbox Expander", "HitboxEnabled")
 AddSlider(Tabs.Misc.Frame, "Hitbox Size", 2, 60, "HitboxSize")
 
---// ESP System
+--// ESP System (Instant Cleanup)
 local Cache = {}
 local function RemoveESP(char)
     if Cache[char] then
@@ -140,15 +177,22 @@ RunService.RenderStepped:Connect(function()
     FOVCircle.Visible = getgenv().Config.ShowFOV; FOVCircle.Radius = getgenv().Config.FOVRadius; FOVCircle.Position = UIS:GetMouseLocation(); FOVCircle.Color = getgenv().Config.ESPColor
     local pot, dist = nil, getgenv().Config.FOVRadius
 
+    -- Cache cleanup scan
+    for char, _ in pairs(Cache) do
+        if not char or not char.Parent or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then
+            RemoveESP(char)
+        end
+    end
+
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= LP.Character then
             local char = v; local hum = char.Humanoid
             
-            -- NPC/Death Fix: Remove instantly if dead or invalid
-            if hum.Health <= 0 or not char.Parent then RemoveESP(char) continue end
+            -- Skip if dead
+            if hum.Health <= 0 then continue end
             
             local player = Players:GetPlayerFromCharacter(char)
-            if getgenv().Config.TeamCheck and player and player.Team == LP.Team then RemoveESP(char) continue end
+            if getgenv().Config.TeamCheck and player and player.Team == LP.Team then continue end
 
             if not Cache[char] then
                 Cache[char] = {
@@ -158,8 +202,10 @@ RunService.RenderStepped:Connect(function()
                 Cache[char].Text.Size = 14; Cache[char].Text.Center = true; Cache[char].Text.Outline = true
             end
             local esp = Cache[char]
+            
+            -- Highlight
             esp.Highlight.Enabled = (getgenv().Config.ChamsEnabled or getgenv().Config.GhostESP)
-            esp.Highlight.DepthMode = getgenv().Config.GhostESP and 0 or 1
+            esp.Highlight.DepthMode = getgenv().Config.GhostESP and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
             esp.Highlight.FillColor = getgenv().Config.ESPColor
 
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -184,7 +230,7 @@ RunService.RenderStepped:Connect(function()
                     esp.Box.Visible = false; esp.Text.Visible = false; esp.Tracer.Visible = false
                 end
 
-                -- Aimbot Target Scan
+                -- Aim Logic
                 local mode = getgenv().Config.TargetMode
                 if (mode=="All") or (mode=="Players" and player) or (mode=="NPCs" and not player) then
                     local aim = char:FindFirstChild(getgenv().Config.AimPart) or root
@@ -198,6 +244,7 @@ RunService.RenderStepped:Connect(function()
                         end
                     end
                 end
+                
                 if getgenv().Config.HitboxEnabled then root.Size = Vector3.new(getgenv().Config.HitboxSize, getgenv().Config.HitboxSize, getgenv().Config.HitboxSize); root.Transparency = 0.8; root.CanCollide = false else root.Size = Vector3.new(2,2,1); root.Transparency = 1 end
             else RemoveESP(char) end
         end
@@ -208,14 +255,27 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
---// Input Handling
-UIS.InputBegan:Connect(function(i, c)
-    if not c and i.KeyCode == Enum.KeyCode.F5 then Main.Visible = not Main.Visible end
-    if not c and i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = true end
+--// Silent Aim (Hooks)
+local old; old = hookmetamethod(game, "__namecall", function(self, ...)
+    local m = getnamecallmethod(); local a = {...}
+    if not checkcaller() and getgenv().Config.Method1_Silent and Locked then
+        if m == "Raycast" then a[2] = (Locked.Position - a[1]).Unit * 1000; return old(self, unpack(a)) end
+    end
+    return old(self, ...)
 end)
-UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = false end end)
+
+local oldI; oldI = hookmetamethod(game, "__index", function(self, idx)
+    if not checkcaller() and getgenv().Config.Method2_Silent and Locked and self == Mouse then
+        if idx == "Hit" then return Locked.CFrame elseif idx == "Target" then return Locked end
+    end
+    return oldI(self, idx)
+end)
 
 --// Dragging
 local d, dP, mP; Sidebar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then d = true; dP = Main.Position; mP = i.Position end end)
 UIS.InputChanged:Connect(function(i) if d and i.UserInputType == Enum.UserInputType.MouseMovement then local delta = i.Position - mP; Main.Position = UDim2.new(dP.X.Scale, dP.X.Offset + delta.X, dP.Y.Scale, dP.Y.Offset + delta.Y) end end)
 UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then d = false end end)
+-- F5 Toggle
+UIS.InputBegan:Connect(function(i,c) if not c and i.KeyCode == Enum.KeyCode.F5 then Main.Visible = not Main.Visible end 
+if not c and i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = true end end)
+UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = false end end)
