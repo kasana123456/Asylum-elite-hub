@@ -31,8 +31,10 @@ getgenv().Config = {
     
     -- Aimbot Methods
     CameraAim = false, -- Camera-based aimbot
-    Method1_Silent = false, -- Raycast hook
-    Method2_Silent = false, -- Mouse hook
+    Method1_Silent = false, -- Raycast hook (Universal)
+    Method2_Silent = false, -- Mouse hook (Mouse.Hit/Target)
+    Method3_Silent = false, -- Remote hook (FireServer/InvokeServer)
+    Method4_Namecall = false, -- Namecall spy (Advanced)
     CursorLock = false, -- Cursor sticks to target
     TriggerBot = false, -- Auto shoot when hovering
     AutoShoot = false, -- Auto shoot when locked
@@ -291,37 +293,36 @@ local function GetTargetPriority(character)
     return 0
 end
 
---// MELEE HITBOX EXTENDER
-local MeleeHitboxPart = nil
+--// ITEM ASYLUM MELEE HITBOX EXTENDER
 local MeleeVisualizePart = nil
+local OriginalMeleeSizes = {}
 
-local function CreateMeleeHitbox()
-    if MeleeHitboxPart then return MeleeHitboxPart end
+-- Hook into Item Asylum's melee weapon system
+local function GetCurrentMeleeWeapon()
+    if not LP.Character then return nil end
     
-    -- Create invisible hitbox part
-    local part = Instance.new("Part")
-    part.Name = "AsylumMeleeHitbox"
-    part.Anchored = false
-    part.CanCollide = false
-    part.Transparency = 1
-    part.Size = Vector3.new(1, 1, 1)
-    part.Massless = true
-    
-    -- Add weld to keep it attached to player
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = part
-    weld.Parent = part
-    
-    part.Parent = workspace
-    
-    MeleeHitboxPart = part
-    return part
+    -- Item Asylum weapons are typically tools
+    for _, tool in pairs(LP.Character:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            -- Check if it's a melee weapon (has melee-related scripts/attributes)
+            local config = tool:FindFirstChild("Configuration") or tool:FindFirstChild("Config")
+            if config and (config:FindFirstChild("Damage") or tool:FindFirstChild("Melee")) then
+                return tool
+            end
+            -- Also check for common Item Asylum melee weapons
+            if tool.Name:lower():find("knife") or tool.Name:lower():find("sword") 
+                or tool.Name:lower():find("bat") or tool.Name:lower():find("katana")
+                or tool.Name:lower():find("real") or tool.Name:lower():find("melee") then
+                return tool
+            end
+        end
+    end
+    return nil
 end
 
 local function CreateMeleeVisualization()
     if MeleeVisualizePart then return MeleeVisualizePart end
     
-    -- Create visible part to show where hitbox is
     local part = Instance.new("Part")
     part.Name = "AsylumMeleeVisual"
     part.Anchored = true
@@ -336,13 +337,57 @@ local function CreateMeleeVisualization()
     return part
 end
 
+-- Modify the weapon's actual hitbox detection
+local function ModifyWeaponHitbox(weapon)
+    if not weapon or not weapon:FindFirstChild("Handle") then return end
+    
+    local handle = weapon.Handle
+    
+    -- Store original size if not already stored
+    if not OriginalMeleeSizes[weapon] then
+        OriginalMeleeSizes[weapon] = handle.Size
+    end
+    
+    if getgenv().Config.MeleeExtenderEnabled then
+        -- Extend the weapon's handle hitbox
+        local newSize = Vector3.new(
+            getgenv().Config.MeleeHitboxSize,
+            OriginalMeleeSizes[weapon].Y + getgenv().Config.MeleeRange,
+            getgenv().Config.MeleeHitboxSize
+        )
+        
+        handle.Size = newSize
+        handle.Transparency = 0.9
+        handle.CanCollide = false
+        
+        -- Extend CFrame forward for reach
+        if getgenv().Config.MeleeAutoTarget and Locked and Locked.Parent then
+            -- Point weapon towards locked target
+            local targetRoot = Locked.Parent:FindFirstChild("HumanoidRootPart")
+            if targetRoot and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                local direction = (targetRoot.Position - LP.Character.HumanoidRootPart.Position).Unit
+                local distance = getgenv().Config.MeleeRange
+                handle.CFrame = LP.Character.HumanoidRootPart.CFrame * CFrame.new(direction * distance)
+            end
+        end
+    else
+        -- Restore original size
+        handle.Size = OriginalMeleeSizes[weapon]
+        handle.Transparency = handle.Transparency
+    end
+end
+
 local function UpdateMeleeHitbox()
     if not getgenv().Config.MeleeExtenderEnabled then
-        if MeleeHitboxPart then
-            MeleeHitboxPart.Parent = nil
-        end
         if MeleeVisualizePart then
             MeleeVisualizePart.Parent = nil
+        end
+        
+        -- Restore all weapon sizes
+        for weapon, originalSize in pairs(OriginalMeleeSizes) do
+            if weapon and weapon:FindFirstChild("Handle") then
+                weapon.Handle.Size = originalSize
+            end
         end
         return
     end
@@ -350,21 +395,18 @@ local function UpdateMeleeHitbox()
     if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
     
     local root = LP.Character.HumanoidRootPart
-    local hitbox = CreateMeleeHitbox()
+    local currentWeapon = GetCurrentMeleeWeapon()
     
-    -- Update hitbox size
-    hitbox.Size = Vector3.new(
-        getgenv().Config.MeleeHitboxSize,
-        getgenv().Config.MeleeHitboxSize,
-        getgenv().Config.MeleeHitboxSize
-    )
+    -- Modify current weapon
+    if currentWeapon then
+        ModifyWeaponHitbox(currentWeapon)
+    end
     
-    -- Calculate position
+    -- Calculate visualization position
     local targetPosition
     local lookDirection
     
     if getgenv().Config.MeleeAutoTarget and Locked and Locked.Parent then
-        -- Auto target: Move hitbox towards locked target
         local targetRoot = Locked.Parent:FindFirstChild("HumanoidRootPart")
         if targetRoot then
             lookDirection = (targetRoot.Position - root.Position).Unit
@@ -372,53 +414,45 @@ local function UpdateMeleeHitbox()
             lookDirection = root.CFrame.LookVector
         end
     else
-        -- Manual: Place hitbox in front of player based on camera look direction
         lookDirection = Camera.CFrame.LookVector
     end
     
     targetPosition = root.Position + (lookDirection * getgenv().Config.MeleeRange)
     
-    -- Position the hitbox
-    hitbox.CFrame = CFrame.new(targetPosition)
-    hitbox.Parent = workspace
-    
-    -- Weld to root if not already welded
-    local weld = hitbox:FindFirstChildOfClass("WeldConstraint")
-    if weld and weld.Part1 ~= root then
-        weld.Part1 = root
-    end
-    
     -- Update visualization
     if getgenv().Config.MeleeVisualize then
         local visual = CreateMeleeVisualization()
-        visual.Size = hitbox.Size
+        visual.Size = Vector3.new(
+            getgenv().Config.MeleeHitboxSize,
+            getgenv().Config.MeleeHitboxSize,
+            getgenv().Config.MeleeHitboxSize
+        )
         visual.CFrame = CFrame.new(targetPosition)
         visual.Parent = workspace
     elseif MeleeVisualizePart then
         MeleeVisualizePart.Parent = nil
     end
     
-    -- Expand enemy hitboxes when in melee range (alternative method)
+    -- Extend enemy hitboxes for easier hitting
     for _, enemy in pairs(TargetCache) do
-        if enemy.Parent and getgenv().Config.MeleeExtenderEnabled then
+        if enemy.Parent then
             local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
             local enemyHum = enemy:FindFirstChildOfClass("Humanoid")
             
             if enemyRoot and enemyHum and enemyHum.Health > 0 then
-                -- Check if enemy is within extended melee range from our hitbox
-                local distance = (hitbox.Position - enemyRoot.Position).Magnitude
+                local distance = (targetPosition - enemyRoot.Position).Magnitude
                 
-                if distance < (getgenv().Config.MeleeHitboxSize + 5) then
-                    -- Temporarily expand enemy hitbox so melee weapons can hit
+                if distance < (getgenv().Config.MeleeHitboxSize + 3) then
+                    -- Expand enemy hitbox when in range
                     enemyRoot.Size = Vector3.new(
-                        getgenv().Config.MeleeHitboxSize * 1.5,
+                        getgenv().Config.MeleeHitboxSize,
                         enemyRoot.Size.Y,
-                        getgenv().Config.MeleeHitboxSize * 1.5
+                        getgenv().Config.MeleeHitboxSize
                     )
                     enemyRoot.Transparency = 0.8
                     enemyRoot.CanCollide = false
                 else
-                    -- Reset to normal size when out of range
+                    -- Reset when out of range
                     if enemyRoot.Size.X > 3 then
                         enemyRoot.Size = Vector3.new(2, 2, 1)
                         enemyRoot.Transparency = 1
@@ -427,6 +461,25 @@ local function UpdateMeleeHitbox()
             end
         end
     end
+end
+
+-- Monitor for new weapons being equipped
+if LP.Character then
+    LP.Character.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") and getgenv().Config.MeleeExtenderEnabled then
+            task.wait(0.1)
+            ModifyWeaponHitbox(child)
+        end
+    end)
+    
+    LP.Character.ChildRemoving:Connect(function(child)
+        if child:IsA("Tool") and OriginalMeleeSizes[child] then
+            if child:FindFirstChild("Handle") then
+                child.Handle.Size = OriginalMeleeSizes[child]
+            end
+            OriginalMeleeSizes[child] = nil
+        end
+    end)
 end
 
 --// ESP FUNCTIONS
@@ -747,62 +800,304 @@ local function UpdateCursorLock()
     end
 end
 
---// METATABLE HOOKS
-local old; old = hookmetamethod(game, "__namecall", function(self, ...)
-    local m = getnamecallmethod(); local a = {...}
-    if not checkcaller() and getgenv().Config.Method1_Silent and Locked then
-        if m == "Raycast" then
-            local targetPos = Locked.Position
-            
-            -- Apply prediction
-            if getgenv().Config.Prediction and Locked.Parent then
-                local predicted = GetPredictedPosition(Locked.Parent)
-                if predicted then
-                    local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
-                    if aimPart then
-                        targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+--// METATABLE HOOKS - IMPROVED SILENT AIM
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+local oldIndex = mt.__index
+local oldNewindex = mt.__newindex
+
+setreadonly(mt, false)
+
+-- Method 1: Raycast Hook (Universal - works with most FPS games)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    if not checkcaller() then
+        -- Raycast silent aim
+        if getgenv().Config.Method1_Silent and Locked and IsAiming then
+            if method == "Raycast" and (self == workspace or tostring(self) == "Workspace") then
+                local targetPos = Locked.Position
+                
+                -- Apply prediction
+                if getgenv().Config.Prediction > 0 and Locked.Parent then
+                    local predicted = GetPredictedPosition(Locked.Parent)
+                    if predicted then
+                        local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                        if aimPart then
+                            targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                        else
+                            targetPos = predicted
+                        end
                     end
+                end
+                
+                -- Modify raycast direction (args[2] is the direction vector)
+                if args[1] and typeof(args[1]) == "Vector3" then
+                    local origin = args[1]
+                    local direction = (targetPos - origin).Unit * 1000
+                    args[2] = direction
+                    CreateBulletTracer(origin, targetPos)
                 end
             end
             
-            a[2] = (targetPos - a[1]).Unit * 1000
-            CreateBulletTracer(a[1], targetPos)
-            return old(self, unpack(a)) 
+            -- FindPartOnRay hook (older games)
+            if (method == "FindPartOnRay" or method == "findPartOnRay") and (self == workspace or tostring(self) == "Workspace") then
+                local targetPos = Locked.Position
+                
+                if getgenv().Config.Prediction > 0 and Locked.Parent then
+                    local predicted = GetPredictedPosition(Locked.Parent)
+                    if predicted then
+                        local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                        if aimPart then
+                            targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                        else
+                            targetPos = predicted
+                        end
+                    end
+                end
+                
+                -- Modify ray
+                if args[1] and typeof(args[1]) == "Ray" then
+                    local origin = args[1].Origin
+                    local direction = (targetPos - origin).Unit * 1000
+                    args[1] = Ray.new(origin, direction)
+                    CreateBulletTracer(origin, targetPos)
+                end
+            end
+            
+            -- FindPartOnRayWithIgnoreList and FindPartOnRayWithWhitelist
+            if (method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist") 
+                and (self == workspace or tostring(self) == "Workspace") then
+                local targetPos = Locked.Position
+                
+                if getgenv().Config.Prediction > 0 and Locked.Parent then
+                    local predicted = GetPredictedPosition(Locked.Parent)
+                    if predicted then
+                        targetPos = predicted
+                    end
+                end
+                
+                if args[1] and typeof(args[1]) == "Ray" then
+                    local origin = args[1].Origin
+                    local direction = (targetPos - origin).Unit * 1000
+                    args[1] = Ray.new(origin, direction)
+                    CreateBulletTracer(origin, targetPos)
+                end
+            end
+            
+            -- FireServer/InvokeServer hook for remote-based games
+            if (method == "FireServer" or method == "InvokeServer") and getgenv().Config.Method3_Silent then
+                -- Check if this is a shooting remote
+                if self.Name:lower():find("shoot") or self.Name:lower():find("fire") 
+                    or self.Name:lower():find("gun") or self.Name:lower():find("damage")
+                    or self.Name:lower():find("hit") or self.Name:lower():find("bullet") then
+                    
+                    local targetPos = Locked.Position
+                    
+                    -- Apply prediction
+                    if getgenv().Config.Prediction > 0 and Locked.Parent then
+                        local predicted = GetPredictedPosition(Locked.Parent)
+                        if predicted then
+                            local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                            if aimPart then
+                                targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                            end
+                        end
+                    end
+                    
+                    -- Try to find and replace position/direction arguments
+                    for i, arg in pairs(args) do
+                        if typeof(arg) == "Vector3" then
+                            -- Check if it's a position (closer to camera) or direction (unit vector)
+                            if arg.Magnitude < 10 then -- Likely a direction
+                                args[i] = (targetPos - Camera.CFrame.Position).Unit
+                            else -- Likely a position
+                                args[i] = targetPos
+                            end
+                        elseif typeof(arg) == "CFrame" then
+                            args[i] = CFrame.new(Camera.CFrame.Position, targetPos)
+                        elseif typeof(arg) == "Instance" and arg:IsA("BasePart") then
+                            -- Replace part argument with target part
+                            args[i] = Locked
+                        end
+                    end
+                    
+                    CreateBulletTracer(Camera.CFrame.Position, targetPos)
+                end
+            end
         end
         
-        -- Auto shoot support
-        if m == "FireServer" or m == "InvokeServer" then
-            if getgenv().Config.AutoShoot then
-                return old(self, ...)
+        -- Method 4: Namecall Spy (catches all remote calls)
+        if getgenv().Config.Method4_Namecall and Locked and IsAiming then
+            -- Hook all remotes regardless of name
+            if method == "FireServer" or method == "InvokeServer" then
+                local targetPos = Locked.Position
+                
+                -- Apply prediction
+                if getgenv().Config.Prediction > 0 and Locked.Parent then
+                    local predicted = GetPredictedPosition(Locked.Parent)
+                    if predicted then
+                        local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                        if aimPart then
+                            targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                        else
+                            targetPos = predicted
+                        end
+                    end
+                end
+                
+                -- Advanced argument modification
+                local modified = false
+                
+                for i = 1, #args do
+                    local arg = args[i]
+                    local argType = typeof(arg)
+                    
+                    if argType == "Vector3" then
+                        -- Check if it's a direction vector or position
+                        local magnitude = arg.Magnitude
+                        
+                        if magnitude > 0.9 and magnitude < 1.1 then
+                            -- Likely a unit direction vector
+                            args[i] = (targetPos - Camera.CFrame.Position).Unit
+                            modified = true
+                        elseif magnitude > 10 then
+                            -- Likely a position vector
+                            args[i] = targetPos
+                            modified = true
+                        else
+                            -- Ambiguous, try as direction first
+                            args[i] = (targetPos - Camera.CFrame.Position).Unit
+                            modified = true
+                        end
+                    elseif argType == "CFrame" then
+                        -- Replace with aim CFrame
+                        args[i] = CFrame.new(Camera.CFrame.Position, targetPos)
+                        modified = true
+                    elseif argType == "Instance" then
+                        -- Check if it's a BasePart
+                        if arg:IsA("BasePart") then
+                            args[i] = Locked
+                            modified = true
+                        end
+                    elseif argType == "Ray" then
+                        -- Replace ray
+                        local origin = Camera.CFrame.Position
+                        args[i] = Ray.new(origin, (targetPos - origin).Unit * 1000)
+                        modified = true
+                    elseif argType == "table" then
+                        -- Check if table contains position/direction data
+                        for key, value in pairs(arg) do
+                            if typeof(value) == "Vector3" then
+                                if key:lower():find("pos") or key:lower():find("target") or key:lower():find("hit") then
+                                    args[i][key] = targetPos
+                                    modified = true
+                                elseif key:lower():find("dir") or key:lower():find("angle") then
+                                    args[i][key] = (targetPos - Camera.CFrame.Position).Unit
+                                    modified = true
+                                end
+                            elseif typeof(value) == "CFrame" then
+                                args[i][key] = CFrame.new(Camera.CFrame.Position, targetPos)
+                                modified = true
+                            elseif typeof(value) == "Instance" and value:IsA("BasePart") then
+                                args[i][key] = Locked
+                                modified = true
+                            end
+                        end
+                    end
+                end
+                
+                -- Create tracer if we modified anything
+                if modified then
+                    CreateBulletTracer(Camera.CFrame.Position, targetPos)
+                end
             end
         end
     end
-    return old(self, ...)
+    
+    return oldNamecall(self, unpack(args))
 end)
 
-local oldI; oldI = hookmetamethod(game, "__index", function(self, idx)
-    if not checkcaller() and getgenv().Config.Method2_Silent and Locked and self == Mouse then
-        if idx == "Hit" then 
-            local targetPos = Locked.Position
-            
-            -- Apply prediction
-            if getgenv().Config.Prediction and Locked.Parent then
-                local predicted = GetPredictedPosition(Locked.Parent)
-                if predicted then
-                    local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
-                    if aimPart then
-                        targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+-- Method 2: Mouse Hook (works with games that use Mouse.Hit/Mouse.Target)
+mt.__index = newcclosure(function(self, key)
+    if not checkcaller() then
+        if getgenv().Config.Method2_Silent and Locked and IsAiming then
+            if self == Mouse or self:IsA("Mouse") then
+                local targetPos = Locked.Position
+                
+                -- Apply prediction
+                if getgenv().Config.Prediction > 0 and Locked.Parent then
+                    local predicted = GetPredictedPosition(Locked.Parent)
+                    if predicted then
+                        local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                        if aimPart then
+                            targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                        end
+                    end
+                end
+                
+                if key == "Hit" then
+                    return CFrame.new(targetPos)
+                elseif key == "Target" then
+                    return Locked
+                elseif key == "X" then
+                    local pos, onScreen = Camera:WorldToViewportPoint(targetPos)
+                    return pos.X
+                elseif key == "Y" then
+                    local pos, onScreen = Camera:WorldToViewportPoint(targetPos)
+                    return pos.Y
+                elseif key == "UnitRay" then
+                    local origin = Camera.CFrame.Position
+                    return Ray.new(origin, (targetPos - origin).Unit)
+                end
+            end
+        end
+        
+        -- UserInputService hook for GetMouseLocation
+        if getgenv().Config.Method2_Silent and Locked and IsAiming then
+            if tostring(self) == "UserInputService" then
+                if key == "GetMouseLocation" then
+                    return function()
+                        local targetPos = Locked.Position
+                        if getgenv().Config.Prediction > 0 and Locked.Parent then
+                            local predicted = GetPredictedPosition(Locked.Parent)
+                            if predicted then
+                                targetPos = predicted
+                            end
+                        end
+                        local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+                        if onScreen then
+                            return Vector2.new(screenPos.X, screenPos.Y)
+                        end
+                        return oldIndex(self, key)()
                     end
                 end
             end
-            
-            return CFrame.new(targetPos)
-        elseif idx == "Target" then 
-            return Locked 
         end
     end
-    return oldI(self, idx)
+    
+    return oldIndex(self, key)
 end)
+
+-- Method 3: Camera CFrame Hook (works with camera-based aiming)
+local oldCameraCFrame
+mt.__newindex = newcclosure(function(self, key, value)
+    if not checkcaller() then
+        if getgenv().Config.Method1_Silent and Locked and IsAiming then
+            if self == Camera and key == "CFrame" then
+                -- Don't interfere with camera aim if both are enabled
+                if not getgenv().Config.CameraAim then
+                    oldCameraCFrame = value
+                end
+            end
+        end
+    end
+    
+    return oldNewindex(self, key, value)
+end)
+
+setreadonly(mt, true)
 
 --// UI TABS
 local CombatTab = Window:CreateTab("Combat", 4483362458)
@@ -812,13 +1107,32 @@ local ItemTab = Window:CreateTab("Item Asylum", 4335489011)
 local SettingsTab = Window:CreateTab("Settings", 4370341699)
 
 --- COMBAT ---
-CombatTab:CreateSection("Aimbot Settings")
-CombatTab:CreateToggle({Name = "Silent Aim (Raycast)", CurrentValue = false, Callback = function(v) getgenv().Config.Method1_Silent = v end})
-CombatTab:CreateToggle({Name = "Silent Aim (Mouse)", CurrentValue = false, Callback = function(v) getgenv().Config.Method2_Silent = v end})
+CombatTab:CreateSection("Silent Aim Methods")
+CombatTab:CreateToggle({Name = "Method 1: Raycast", CurrentValue = false, Callback = function(v) getgenv().Config.Method1_Silent = v end})
+CombatTab:CreateLabel("└ Raycasting games (Modern FPS)")
+
+CombatTab:CreateToggle({Name = "Method 2: Mouse Hook", CurrentValue = false, Callback = function(v) getgenv().Config.Method2_Silent = v end})
+CombatTab:CreateLabel("└ Mouse.Hit/Target based games")
+
+CombatTab:CreateToggle({Name = "Method 3: Remote", CurrentValue = false, Callback = function(v) getgenv().Config.Method3_Silent = v end})
+CombatTab:CreateLabel("└ Named remotes (shoot/fire/gun)")
+
+CombatTab:CreateToggle({Name = "Method 4: Namecall Spy", CurrentValue = false, Callback = function(v) getgenv().Config.Method4_Namecall = v end})
+CombatTab:CreateLabel("└ All remotes (Universal catch-all)")
+
+CombatTab:CreateSection("Other Aimbot Types")
 CombatTab:CreateToggle({Name = "Camera Aimbot", CurrentValue = false, Callback = function(v) getgenv().Config.CameraAim = v end})
-CombatTab:CreateToggle({Name = "Cursor Lock (Sticky Aim)", CurrentValue = false, Callback = function(v) getgenv().Config.CursorLock = v end})
+CombatTab:CreateToggle({Name = "Cursor Lock (Sticky)", CurrentValue = false, Callback = function(v) getgenv().Config.CursorLock = v end})
+
+CombatTab:CreateSection("Auto Features")
 CombatTab:CreateToggle({Name = "Trigger Bot", CurrentValue = false, Callback = function(v) getgenv().Config.TriggerBot = v end})
 CombatTab:CreateToggle({Name = "Auto Shoot", CurrentValue = false, Callback = function(v) getgenv().Config.AutoShoot = v end})
+
+CombatTab:CreateSection("Method Guide")
+CombatTab:CreateLabel("Try methods in order 1→2→3→4")
+CombatTab:CreateLabel("Method 4 is most aggressive")
+CombatTab:CreateLabel("Can combine multiple methods")
+CombatTab:CreateLabel("Enable bullet tracers to test")
 
 CombatTab:CreateSection("Targeting")
 CombatTab:CreateDropdown({Name = "Target Mode", Options = {"All", "Players", "NPCs"}, CurrentOption = {"All"}, Callback = function(v) getgenv().Config.TargetMode = v[1] end})
@@ -895,14 +1209,16 @@ MiscTab:CreateSlider({Name = "Transparency", Range = {0, 1}, Increment = 0.1, Cu
 ItemTab:CreateSection("Melee Hitbox Extender")
 ItemTab:CreateToggle({Name = "Enable Melee Extender", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeExtenderEnabled = v end})
 ItemTab:CreateSlider({Name = "Melee Range (Distance)", Range = {1, 30}, Increment = 0.5, CurrentValue = 5, Callback = function(v) getgenv().Config.MeleeRange = v end})
-ItemTab:CreateSlider({Name = "Hitbox Size", Range = {2, 20}, Increment = 0.5, CurrentValue = 8, Callback = function(v) getgenv().Config.MeleeHitboxSize = v end})
+ItemTab:CreateSlider({Name = "Hitbox Size (Width)", Range = {2, 20}, Increment = 0.5, CurrentValue = 8, Callback = function(v) getgenv().Config.MeleeHitboxSize = v end})
 ItemTab:CreateToggle({Name = "Auto Target Nearest", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeAutoTarget = v end})
 ItemTab:CreateToggle({Name = "Visualize Hitbox", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeVisualize = v end})
 
-ItemTab:CreateSection("Info")
-ItemTab:CreateLabel("Range = How far from you")
-ItemTab:CreateLabel("Size = How big the hitbox is")
-ItemTab:CreateLabel("Auto Target = Follows enemies")
+ItemTab:CreateSection("How It Works")
+ItemTab:CreateLabel("Modifies your weapon's handle size")
+ItemTab:CreateLabel("Range = Forward distance from player")
+ItemTab:CreateLabel("Size = Width/Height of weapon hitbox")
+ItemTab:CreateLabel("Auto Target = Aims at locked enemy")
+ItemTab:CreateLabel("Works with: Knives, Bats, Swords, etc.")
 
 --- SETTINGS ---
 SettingsTab:CreateSection("Configuration Management")
@@ -990,6 +1306,8 @@ SettingsTab:CreateButton({
             CameraAim = false,
             Method1_Silent = false,
             Method2_Silent = false,
+            Method3_Silent = false,
+            Method4_Namecall = false,
             CursorLock = false,
             TriggerBot = false,
             AutoShoot = false,
