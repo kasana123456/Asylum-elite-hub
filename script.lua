@@ -107,6 +107,94 @@ local ESPObjects = {}
 local StickyLockedTarget = nil
 local IsAiming = false
 
+--// AUTO SAVE SYSTEM
+local ConfigFolder = "AsylumElite"
+local ConfigFile = "config.json"
+
+local function SaveConfig()
+    local success, err = pcall(function()
+        if not isfolder(ConfigFolder) then
+            makefolder(ConfigFolder)
+        end
+        
+        local configData = game:GetService("HttpService"):JSONEncode(getgenv().Config)
+        writefile(ConfigFolder .. "/" .. ConfigFile, configData)
+    end)
+    
+    if success then
+        Rayfield:Notify({
+            Title = "Config Saved",
+            Content = "Settings saved successfully!",
+            Duration = 3,
+            Image = 4483362458
+        })
+    else
+        warn("Failed to save config:", err)
+    end
+end
+
+local function LoadConfig()
+    local success, err = pcall(function()
+        if isfolder(ConfigFolder) and isfile(ConfigFolder .. "/" .. ConfigFile) then
+            local configData = readfile(ConfigFolder .. "/" .. ConfigFile)
+            local loadedConfig = game:GetService("HttpService"):JSONDecode(configData)
+            
+            -- Merge loaded config with current config (preserve new settings)
+            for key, value in pairs(loadedConfig) do
+                if getgenv().Config[key] ~= nil then
+                    getgenv().Config[key] = value
+                end
+            end
+            
+            Rayfield:Notify({
+                Title = "Config Loaded",
+                Content = "Settings loaded successfully!",
+                Duration = 3,
+                Image = 4483362458
+            })
+            
+            return true
+        end
+    end)
+    
+    if not success then
+        warn("Failed to load config:", err)
+    end
+    
+    return false
+end
+
+-- Auto-save every 30 seconds
+task.spawn(function()
+    while task.wait(30) do
+        SaveConfig()
+    end
+end)
+
+-- Auto-load config on script start
+task.spawn(function()
+    task.wait(1) -- Wait for UI to load
+    LoadConfig()
+end)
+
+-- Save config when player leaves (cleanup)
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+    if player == LP then
+        SaveConfig()
+    end
+end)
+
+-- Also save when script is being destroyed
+local scriptConnection
+scriptConnection = game:GetService("RunService").Heartbeat:Connect(function()
+    if not getgenv then
+        SaveConfig()
+        if scriptConnection then
+            scriptConnection:Disconnect()
+        end
+    end
+end)
+
 --// PERFORMANCE: TARGET CACHE
 local TargetCache = {}
 local function RefreshTargets()
@@ -721,6 +809,7 @@ local CombatTab = Window:CreateTab("Combat", 4483362458)
 local VisualsTab = Window:CreateTab("Visuals", 4483345998)
 local MiscTab = Window:CreateTab("Character", 4483362458)
 local ItemTab = Window:CreateTab("Item Asylum", 4335489011)
+local SettingsTab = Window:CreateTab("Settings", 4370341699)
 
 --- COMBAT ---
 CombatTab:CreateSection("Aimbot Settings")
@@ -814,6 +903,162 @@ ItemTab:CreateSection("Info")
 ItemTab:CreateLabel("Range = How far from you")
 ItemTab:CreateLabel("Size = How big the hitbox is")
 ItemTab:CreateLabel("Auto Target = Follows enemies")
+
+--- SETTINGS ---
+SettingsTab:CreateSection("Configuration Management")
+SettingsTab:CreateButton({
+    Name = "Save Config",
+    Callback = function()
+        SaveConfig()
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Load Config",
+    Callback = function()
+        LoadConfig()
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Export Config to Clipboard",
+    Callback = function()
+        local success, err = pcall(function()
+            local configData = game:GetService("HttpService"):JSONEncode(getgenv().Config)
+            setclipboard(configData)
+            Rayfield:Notify({
+                Title = "Config Exported",
+                Content = "Config copied to clipboard!",
+                Duration = 3,
+                Image = 4483362458
+            })
+        end)
+        if not success then
+            Rayfield:Notify({
+                Title = "Export Failed",
+                Content = "Could not export config",
+                Duration = 3,
+                Image = 4483362458
+            })
+        end
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Import Config from Clipboard",
+    Callback = function()
+        local success, err = pcall(function()
+            local clipboardData = getclipboard()
+            local importedConfig = game:GetService("HttpService"):JSONDecode(clipboardData)
+            
+            -- Merge imported config
+            for key, value in pairs(importedConfig) do
+                if getgenv().Config[key] ~= nil then
+                    getgenv().Config[key] = value
+                end
+            end
+            
+            Rayfield:Notify({
+                Title = "Config Imported",
+                Content = "Settings imported successfully!",
+                Duration = 3,
+                Image = 4483362458
+            })
+        end)
+        if not success then
+            Rayfield:Notify({
+                Title = "Import Failed",
+                Content = "Invalid config in clipboard",
+                Duration = 3,
+                Image = 4483362458
+            })
+        end
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Reset to Default",
+    Callback = function()
+        -- Reset all settings to default
+        getgenv().Config = {
+            TargetMode = "All",
+            AimPart = "Head",
+            AimKey = Enum.UserInputType.MouseButton2,
+            AimKeybind = false,
+            StickyTarget = false,
+            ClosestToMouse = true,
+            CameraAim = false,
+            Method1_Silent = false,
+            Method2_Silent = false,
+            CursorLock = false,
+            TriggerBot = false,
+            AutoShoot = false,
+            Smoothness = 0.2,
+            Prediction = 0.13,
+            ShakeReduction = 0,
+            FOVRadius = 150,
+            WallCheck = true,
+            TeamCheck = true,
+            VisibleCheck = true,
+            IgnoreDowned = true,
+            PrioritizeLowHealth = false,
+            HealthThreshold = 50,
+            ResolverEnabled = false,
+            ResolverMethod = "MoveDirection",
+            ShowFOV = true,
+            FOVFilled = false,
+            FOVFillTransparency = 0.1,
+            ESPEnabled = false,
+            NameESP = false,
+            HealthESP = false,
+            DistanceESP = false,
+            TracerEnabled = false,
+            BulletTracers = false,
+            ChamsEnabled = false,
+            GhostESP = false,
+            ESPColor = Color3.fromRGB(0, 255, 255),
+            TargetColor = Color3.fromRGB(255, 0, 0),
+            TeamColor = Color3.fromRGB(0, 255, 0),
+            TracerOrigin = "Bottom",
+            ShowTeammates = false,
+            ShowCrosshair = false,
+            CrosshairSize = 10,
+            CrosshairColor = Color3.fromRGB(255, 255, 255),
+            CrosshairThickness = 2,
+            WalkSpeed = 16,
+            JumpPower = 50,
+            InfJump = false,
+            NoTilt = false,
+            NoSlowdown = false,
+            AutoSprint = false,
+            HitboxEnabled = false,
+            HitboxSize = 10,
+            HitboxTransparency = 0.7,
+            MeleeExtenderEnabled = false,
+            MeleeRange = 5,
+            MeleeHitboxSize = 8,
+            MeleeAutoTarget = false,
+            MeleeVisualize = false
+        }
+        
+        Rayfield:Notify({
+            Title = "Config Reset",
+            Content = "All settings reset to default!",
+            Duration = 3,
+            Image = 4483362458
+        })
+    end
+})
+
+SettingsTab:CreateSection("Auto Save")
+SettingsTab:CreateLabel("Config auto-saves every 30 seconds")
+SettingsTab:CreateLabel("Config loads automatically on script start")
+SettingsTab:CreateLabel("Location: workspace/" .. ConfigFolder)
+
+SettingsTab:CreateSection("Script Info")
+SettingsTab:CreateLabel("Version: V17.3 Advanced")
+SettingsTab:CreateLabel("Asylum Elite - Unified Engine")
+SettingsTab:CreateLabel("Features: Combat, ESP, Movement, Melee")
 
 --// CORE UNIFIED ENGINE
 local FOVCircle = Drawing.new("Circle")
@@ -1045,4 +1290,4 @@ UIS.JumpRequest:Connect(function()
     end 
 end)
 
-Rayfield:Notify({Title = "ASYLUM ELITE V17.3", Content = "Advanced Combat + Cursor Lock Loaded!", Duration = 5})
+Rayfield:Notify({Title = "ASYLUM ELITE V17.3", Content = "Auto-Save Enabled | All Features Loaded!", Duration = 6})
