@@ -814,9 +814,36 @@ mt.__namecall = newcclosure(function(self, ...)
     local args = {...}
     
     if not checkcaller() then
-        -- Raycast silent aim
+        -- Method 1: Raycast Silent Aim (Simplified & Optimized)
         if getgenv().Config.Method1_Silent and Locked and IsAiming then
-            if method == "Raycast" and (self == workspace or tostring(self) == "Workspace") then
+            if method == "Raycast" then
+                -- Modern Raycast method
+                local args = {...}
+                if args[1] and typeof(args[1]) == "Vector3" then
+                    local targetPos = Locked.Position
+                    
+                    -- Apply prediction
+                    if getgenv().Config.Prediction > 0 and Locked.Parent then
+                        local predicted = GetPredictedPosition(Locked.Parent)
+                        if predicted then
+                            local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                            if aimPart then
+                                targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                            else
+                                targetPos = predicted
+                            end
+                        end
+                    end
+                    
+                    -- Modify direction vector
+                    args[2] = (targetPos - args[1]).Unit * 1000
+                    CreateBulletTracer(args[1], targetPos)
+                end
+            end
+            
+            -- Legacy FindPartOnRay methods
+            if method:find("PartOnRay") then
+                local args = {...}
                 local targetPos = Locked.Position
                 
                 -- Apply prediction
@@ -832,58 +859,9 @@ mt.__namecall = newcclosure(function(self, ...)
                     end
                 end
                 
-                -- Modify raycast direction (args[2] is the direction vector)
-                if args[1] and typeof(args[1]) == "Vector3" then
-                    local origin = args[1]
-                    local direction = (targetPos - origin).Unit * 1000
-                    args[2] = direction
-                    CreateBulletTracer(origin, targetPos)
-                end
-            end
-            
-            -- FindPartOnRay hook (older games)
-            if (method == "FindPartOnRay" or method == "findPartOnRay") and (self == workspace or tostring(self) == "Workspace") then
-                local targetPos = Locked.Position
-                
-                if getgenv().Config.Prediction > 0 and Locked.Parent then
-                    local predicted = GetPredictedPosition(Locked.Parent)
-                    if predicted then
-                        local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
-                        if aimPart then
-                            targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
-                        else
-                            targetPos = predicted
-                        end
-                    end
-                end
-                
-                -- Modify ray
-                if args[1] and typeof(args[1]) == "Ray" then
-                    local origin = args[1].Origin
-                    local direction = (targetPos - origin).Unit * 1000
-                    args[1] = Ray.new(origin, direction)
-                    CreateBulletTracer(origin, targetPos)
-                end
-            end
-            
-            -- FindPartOnRayWithIgnoreList and FindPartOnRayWithWhitelist
-            if (method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist") 
-                and (self == workspace or tostring(self) == "Workspace") then
-                local targetPos = Locked.Position
-                
-                if getgenv().Config.Prediction > 0 and Locked.Parent then
-                    local predicted = GetPredictedPosition(Locked.Parent)
-                    if predicted then
-                        targetPos = predicted
-                    end
-                end
-                
-                if args[1] and typeof(args[1]) == "Ray" then
-                    local origin = args[1].Origin
-                    local direction = (targetPos - origin).Unit * 1000
-                    args[1] = Ray.new(origin, direction)
-                    CreateBulletTracer(origin, targetPos)
-                end
+                -- Create new ray pointing at target
+                args[1] = Ray.new(Camera.CFrame.Position, (targetPos - Camera.CFrame.Position).Unit * 1000)
+                CreateBulletTracer(Camera.CFrame.Position, targetPos)
             end
             
             -- FireServer/InvokeServer hook for remote-based games
