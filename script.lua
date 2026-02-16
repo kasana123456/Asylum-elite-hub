@@ -1,13 +1,13 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "ASYLUM ELITE V16.0",
+   Name = "ASYLUM ELITE V17.3",
    LoadingTitle = "Asylum Hub",
-   LoadingSubtitle = "Kasana",
+   LoadingSubtitle = "Advanced Combat Engine",
    ConfigurationSaving = {
       Enabled = true,
       FolderName = "AsylumElite",
-      FileName = "UnifiedConfig"
+      FileName = "Unified_V17_3"
    },
    KeySystem = false
 })
@@ -19,34 +19,95 @@ local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LP:GetMouse()
 
---// Consolidated Configuration
+--// FULL CONFIGURATION
 getgenv().Config = {
-    -- Aim Logic
+    -- Targeting System
     TargetMode = "All",
     AimPart = "Head",
-    CameraAim = false,
-    Method1_Silent = false,
-    Method2_Silent = false,
-    Smoothness = 0.15,
+    AimKey = Enum.UserInputType.MouseButton2, -- Right click to aim
+    AimKeybind = false, -- Toggle for keybind requirement
+    StickyTarget = false, -- Keep targeting same enemy
+    ClosestToMouse = true, -- Target closest to mouse vs closest to player
+    
+    -- Aimbot Methods
+    CameraAim = false, -- Camera-based aimbot
+    Method1_Silent = false, -- Raycast hook
+    Method2_Silent = false, -- Mouse hook
+    CursorLock = false, -- Cursor sticks to target
+    TriggerBot = false, -- Auto shoot when hovering
+    AutoShoot = false, -- Auto shoot when locked
+    
+    -- Aimbot Settings
+    Smoothness = 0.2,
+    Prediction = 0.13, -- Velocity prediction
+    ShakeReduction = 0, -- Reduce camera shake (0-100)
     FOVRadius = 150,
     WallCheck = true,
     TeamCheck = true,
+    VisibleCheck = true, -- Only target visible enemies
+    
+    -- Advanced Targeting
+    IgnoreDowned = true, -- Don't target downed players
+    PrioritizeLowHealth = false, -- Target low HP enemies first
+    HealthThreshold = 50, -- Health % to prioritize
+    
+    -- Resolver (Anti-Desync)
+    ResolverEnabled = false,
+    ResolverMethod = "MoveDirection", -- MoveDirection, Velocity, Hybrid
     
     -- Visuals
     ShowFOV = true,
+    FOVFilled = false,
+    FOVFillTransparency = 0.1,
     ESPEnabled = false,
     NameESP = false,
+    HealthESP = false,
+    DistanceESP = false,
     TracerEnabled = false,
+    BulletTracers = false,
     ChamsEnabled = false,
     GhostESP = false,
     ESPColor = Color3.fromRGB(0, 255, 255),
+    TargetColor = Color3.fromRGB(255, 0, 0),
+    TeamColor = Color3.fromRGB(0, 255, 0),
+    TracerOrigin = "Bottom",
+    ShowTeammates = false,
     
-    -- Misc
+    -- Crosshair
+    ShowCrosshair = false,
+    CrosshairSize = 10,
+    CrosshairColor = Color3.fromRGB(255, 255, 255),
+    CrosshairThickness = 2,
+    
+    -- Misc & Movement
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfJump = false,
+    NoTilt = false,
+    NoSlowdown = false,
+    AutoSprint = false,
+    
+    -- Hitbox
     HitboxEnabled = false,
-    HitboxSize = 10
+    HitboxSize = 10,
+    HitboxTransparency = 0.7,
+    
+    -- Melee Hitbox Extender
+    MeleeExtenderEnabled = false,
+    MeleeRange = 5, -- Distance from player
+    MeleeHitboxSize = 8, -- Size of the extended hitbox
+    MeleeAutoTarget = false, -- Automatically move hitbox to nearest enemy
+    MeleeVisualize = false -- Show where the melee hitbox is
 }
 
---// PERFORMANCE: TARGET CACHE (Unified NPC/Player Scan)
+--// ESP STORAGE
+local ESPObjects = {}
+
+--// COMBAT STATE
+local StickyLockedTarget = nil
+local IsAiming = false
+
+--// PERFORMANCE: TARGET CACHE
 local TargetCache = {}
 local function RefreshTargets()
     local newCache = {}
@@ -60,200 +121,928 @@ end
 task.spawn(function() while task.wait(1.5) do RefreshTargets() end end)
 RefreshTargets()
 
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 1.5
-
---// TABS
-local CombatTab = Window:CreateTab("Combat", 4483362458)
-local VisualsTab = Window:CreateTab("Visuals", 4483345998)
-local MiscTab = Window:CreateTab("Character", 4483362458)
-
---- COMBAT TAB ---
-CombatTab:CreateSection("Targeting Mode")
-CombatTab:CreateDropdown({
-   Name = "Target Type",
-   Options = {"All", "Players", "NPCs"},
-   CurrentOption = {"All"},
-   Callback = function(Option) getgenv().Config.TargetMode = Option[1] end,
-})
-
-CombatTab:CreateDropdown({
-   Name = "Target Bone",
-   Options = {"Head", "UpperTorso", "HumanoidRootPart"},
-   CurrentOption = {"Head"},
-   Callback = function(Option) getgenv().Config.AimPart = Option[1] end,
-})
-
-CombatTab:CreateSection("Aimbot Methods")
-CombatTab:CreateToggle({
-   Name = "Camera Snap (Right Click)",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.CameraAim = v end,
-})
-
-CombatTab:CreateToggle({
-   Name = "Silent Aim (Raycast)",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.Method1_Silent = v end,
-})
-
-CombatTab:CreateToggle({
-   Name = "Silent Aim (Mouse Hit)",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.Method2_Silent = v end,
-})
-
-CombatTab:CreateSection("Precision & Checks")
-CombatTab:CreateSlider({
-   Name = "FOV Size",
-   Range = {10, 800},
-   Increment = 5,
-   CurrentValue = 150,
-   Callback = function(v) getgenv().Config.FOVRadius = v end,
-})
-
-CombatTab:CreateSlider({
-   Name = "Smoothing",
-   Range = {0.01, 1},
-   Increment = 0.01,
-   CurrentValue = 0.15,
-   Callback = function(v) getgenv().Config.Smoothness = v end,
-})
-
-CombatTab:CreateToggle({
-   Name = "Wall Check",
-   CurrentValue = true,
-   Callback = function(v) getgenv().Config.WallCheck = v end,
-})
-
---- VISUALS TAB ---
-VisualsTab:CreateSection("ESP Components")
-VisualsTab:CreateToggle({
-   Name = "Box ESP",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.ESPEnabled = v end,
-})
-
-VisualsTab:CreateToggle({
-   Name = "Names & Health",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.NameESP = v end,
-})
-
-VisualsTab:CreateToggle({
-   Name = "Tracers",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.TracerEnabled = v end,
-})
-
-VisualsTab:CreateSection("Chams")
-VisualsTab:CreateToggle({
-   Name = "Glow Chams",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.ChamsEnabled = v end,
-})
-
-VisualsTab:CreateToggle({
-   Name = "Ghost (Wallhack)",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.GhostESP = v end,
-})
-
-VisualsTab:CreateSection("Global Visuals")
-VisualsTab:CreateToggle({
-   Name = "Show FOV Circle",
-   CurrentValue = true,
-   Callback = function(v) getgenv().Config.ShowFOV = v end,
-})
-
-VisualsTab:CreateColorPicker({
-    Name = "Theme Color",
-    Color = Color3.fromRGB(0, 255, 255),
-    Callback = function(v) getgenv().Config.ESPColor = v end
-})
-
---- MISC TAB ---
-MiscTab:CreateSection("Hitbox Mod")
-MiscTab:CreateToggle({
-   Name = "Expand Hitboxes",
-   CurrentValue = false,
-   Callback = function(v) getgenv().Config.HitboxEnabled = v end,
-})
-
-MiscTab:CreateSlider({
-   Name = "Hitbox Size",
-   Range = {2, 50},
-   Increment = 1,
-   CurrentValue = 10,
-   Callback = function(v) getgenv().Config.HitboxSize = v end,
-})
-
---// CORE UNIFIED ENGINE
-local ESPLib = {}
-RunService.RenderStepped:Connect(function()
-    FOVCircle.Visible = getgenv().Config.ShowFOV
-    FOVCircle.Radius = getgenv().Config.FOVRadius
-    FOVCircle.Position = UIS:GetMouseLocation()
-    FOVCircle.Color = getgenv().Config.ESPColor
+--// COMBAT HELPER FUNCTIONS
+local function GetPredictedPosition(character)
+    if not getgenv().Config.Prediction or getgenv().Config.Prediction == 0 then
+        return nil
+    end
     
-    local pot, dist = nil, getgenv().Config.FOVRadius
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    
+    local velocity = root.AssemblyLinearVelocity or root.Velocity
+    return root.Position + (velocity * getgenv().Config.Prediction)
+end
 
-    for _, v in pairs(TargetCache) do
-        if v.Parent and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
-            local char = v
-            local player = Players:GetPlayerFromCharacter(char)
+local function ResolveTarget(character)
+    if not getgenv().Config.ResolverEnabled then return character end
+    
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid then return character end
+    
+    if getgenv().Config.ResolverMethod == "MoveDirection" then
+        local moveDir = humanoid.MoveDirection
+        if moveDir.Magnitude > 0 then
+            root.CFrame = CFrame.new(root.Position + (moveDir * 2))
+        end
+    elseif getgenv().Config.ResolverMethod == "Velocity" then
+        local velocity = root.AssemblyLinearVelocity or root.Velocity
+        if velocity.Magnitude > 1 then
+            root.CFrame = CFrame.new(root.Position + velocity.Unit)
+        end
+    elseif getgenv().Config.ResolverMethod == "Hybrid" then
+        local velocity = root.AssemblyLinearVelocity or root.Velocity
+        local moveDir = humanoid.MoveDirection
+        if velocity.Magnitude > 1 and moveDir.Magnitude > 0 then
+            local avgDir = (velocity.Unit + moveDir).Unit
+            root.CFrame = CFrame.new(root.Position + avgDir * 1.5)
+        end
+    end
+    
+    return character
+end
+
+local function IsTargetValid(character)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    
+    -- Check if downed
+    if getgenv().Config.IgnoreDowned then
+        if humanoid.Health < humanoid.MaxHealth * 0.01 or humanoid.PlatformStand then
+            return false
+        end
+    end
+    
+    -- Visible check
+    if getgenv().Config.VisibleCheck then
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if root and LP.Character then
+            local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 1000)
+            local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LP.Character, character})
+            if hit and hit.Parent ~= character then
+                return false
+            end
+        end
+    end
+    
+    return true
+end
+
+local function GetTargetPriority(character)
+    if not getgenv().Config.PrioritizeLowHealth then return 0 end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return 0 end
+    
+    local healthPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+    if healthPercent <= getgenv().Config.HealthThreshold then
+        return 100 - healthPercent -- Lower health = higher priority
+    end
+    
+    return 0
+end
+
+--// MELEE HITBOX EXTENDER
+local MeleeHitboxPart = nil
+local MeleeVisualizePart = nil
+
+local function CreateMeleeHitbox()
+    if MeleeHitboxPart then return MeleeHitboxPart end
+    
+    -- Create invisible hitbox part
+    local part = Instance.new("Part")
+    part.Name = "AsylumMeleeHitbox"
+    part.Anchored = false
+    part.CanCollide = false
+    part.Transparency = 1
+    part.Size = Vector3.new(1, 1, 1)
+    part.Massless = true
+    
+    -- Add weld to keep it attached to player
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = part
+    weld.Parent = part
+    
+    part.Parent = workspace
+    
+    MeleeHitboxPart = part
+    return part
+end
+
+local function CreateMeleeVisualization()
+    if MeleeVisualizePart then return MeleeVisualizePart end
+    
+    -- Create visible part to show where hitbox is
+    local part = Instance.new("Part")
+    part.Name = "AsylumMeleeVisual"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 0.7
+    part.Color = Color3.fromRGB(255, 0, 0)
+    part.Material = Enum.Material.Neon
+    part.Size = Vector3.new(1, 1, 1)
+    part.Parent = workspace
+    
+    MeleeVisualizePart = part
+    return part
+end
+
+local function UpdateMeleeHitbox()
+    if not getgenv().Config.MeleeExtenderEnabled then
+        if MeleeHitboxPart then
+            MeleeHitboxPart.Parent = nil
+        end
+        if MeleeVisualizePart then
+            MeleeVisualizePart.Parent = nil
+        end
+        return
+    end
+    
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local root = LP.Character.HumanoidRootPart
+    local hitbox = CreateMeleeHitbox()
+    
+    -- Update hitbox size
+    hitbox.Size = Vector3.new(
+        getgenv().Config.MeleeHitboxSize,
+        getgenv().Config.MeleeHitboxSize,
+        getgenv().Config.MeleeHitboxSize
+    )
+    
+    -- Calculate position
+    local targetPosition
+    local lookDirection
+    
+    if getgenv().Config.MeleeAutoTarget and Locked and Locked.Parent then
+        -- Auto target: Move hitbox towards locked target
+        local targetRoot = Locked.Parent:FindFirstChild("HumanoidRootPart")
+        if targetRoot then
+            lookDirection = (targetRoot.Position - root.Position).Unit
+        else
+            lookDirection = root.CFrame.LookVector
+        end
+    else
+        -- Manual: Place hitbox in front of player based on camera look direction
+        lookDirection = Camera.CFrame.LookVector
+    end
+    
+    targetPosition = root.Position + (lookDirection * getgenv().Config.MeleeRange)
+    
+    -- Position the hitbox
+    hitbox.CFrame = CFrame.new(targetPosition)
+    hitbox.Parent = workspace
+    
+    -- Weld to root if not already welded
+    local weld = hitbox:FindFirstChildOfClass("WeldConstraint")
+    if weld and weld.Part1 ~= root then
+        weld.Part1 = root
+    end
+    
+    -- Update visualization
+    if getgenv().Config.MeleeVisualize then
+        local visual = CreateMeleeVisualization()
+        visual.Size = hitbox.Size
+        visual.CFrame = CFrame.new(targetPosition)
+        visual.Parent = workspace
+    elseif MeleeVisualizePart then
+        MeleeVisualizePart.Parent = nil
+    end
+    
+    -- Expand enemy hitboxes when in melee range (alternative method)
+    for _, enemy in pairs(TargetCache) do
+        if enemy.Parent and getgenv().Config.MeleeExtenderEnabled then
+            local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+            local enemyHum = enemy:FindFirstChildOfClass("Humanoid")
             
-            -- Filter logic from V12.2
-            if getgenv().Config.TeamCheck and player and player.Team == LP.Team then continue end
-            local mode = getgenv().Config.TargetMode
-            local isValid = (mode == "All") or (mode == "Players" and player) or (mode == "NPCs" and not player)
-
-            if isValid then
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    -- Hitbox Logic
-                    if getgenv().Config.HitboxEnabled then
-                        root.Size = Vector3.new(getgenv().Config.HitboxSize, getgenv().Config.HitboxSize, getgenv().Config.HitboxSize)
-                        root.Transparency = 0.7
-                    else
-                        root.Size = Vector3.new(2,2,1); root.Transparency = 1
-                    end
-
-                    -- Targeting Logic
-                    local aim = char:FindFirstChild(getgenv().Config.AimPart) or root
-                    local aPos, aOn = Camera:WorldToViewportPoint(aim.Position)
-                    if aOn then
-                        local mDist = (Vector2.new(aPos.X, aPos.Y) - UIS:GetMouseLocation()).Magnitude
-                        if mDist < dist then
-                            if not getgenv().Config.WallCheck or #Camera:GetPartsObscuringTarget({aim.Position}, {LP.Character, char}) == 0 then
-                                pot = aim; dist = mDist
-                            end
-                        end
+            if enemyRoot and enemyHum and enemyHum.Health > 0 then
+                -- Check if enemy is within extended melee range from our hitbox
+                local distance = (hitbox.Position - enemyRoot.Position).Magnitude
+                
+                if distance < (getgenv().Config.MeleeHitboxSize + 5) then
+                    -- Temporarily expand enemy hitbox so melee weapons can hit
+                    enemyRoot.Size = Vector3.new(
+                        getgenv().Config.MeleeHitboxSize * 1.5,
+                        enemyRoot.Size.Y,
+                        getgenv().Config.MeleeHitboxSize * 1.5
+                    )
+                    enemyRoot.Transparency = 0.8
+                    enemyRoot.CanCollide = false
+                else
+                    -- Reset to normal size when out of range
+                    if enemyRoot.Size.X > 3 then
+                        enemyRoot.Size = Vector3.new(2, 2, 1)
+                        enemyRoot.Transparency = 1
                     end
                 end
             end
         end
     end
-    Locked = pot
-end)
+end
 
---// Aim Control & Metatable Hooks
-UIS.InputBegan:Connect(function(i, c) if not c and i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = true end end)
-UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton2 then IsAiming = false end end)
+--// ESP FUNCTIONS
+local function CreateESP(character)
+    if ESPObjects[character] then return end
+    
+    local espFolder = {
+        Box = {},
+        Tracer = nil,
+        Name = nil,
+        Health = nil,
+        Distance = nil
+    }
+    
+    -- Box ESP (4 lines forming a square)
+    for i = 1, 4 do
+        local line = Drawing.new("Line")
+        line.Visible = false
+        line.Color = getgenv().Config.ESPColor
+        line.Thickness = 1.5
+        line.Transparency = 1
+        espFolder.Box[i] = line
+    end
+    
+    -- Tracer Line
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Color = getgenv().Config.ESPColor
+    tracer.Thickness = 1.5
+    tracer.Transparency = 1
+    espFolder.Tracer = tracer
+    
+    -- Name Text
+    local nameText = Drawing.new("Text")
+    nameText.Visible = false
+    nameText.Color = getgenv().Config.ESPColor
+    nameText.Size = 16
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.Font = 2
+    espFolder.Name = nameText
+    
+    -- Health Text
+    local healthText = Drawing.new("Text")
+    healthText.Visible = false
+    healthText.Color = Color3.fromRGB(0, 255, 0)
+    healthText.Size = 14
+    healthText.Center = true
+    healthText.Outline = true
+    healthText.Font = 2
+    espFolder.Health = healthText
+    
+    -- Distance Text
+    local distText = Drawing.new("Text")
+    distText.Visible = false
+    distText.Color = Color3.fromRGB(255, 255, 255)
+    distText.Size = 14
+    distText.Center = true
+    distText.Outline = true
+    distText.Font = 2
+    espFolder.Distance = distText
+    
+    ESPObjects[character] = espFolder
+end
 
+local function RemoveESP(character)
+    if not ESPObjects[character] then return end
+    
+    for _, line in pairs(ESPObjects[character].Box) do
+        line:Remove()
+    end
+    
+    if ESPObjects[character].Tracer then ESPObjects[character].Tracer:Remove() end
+    if ESPObjects[character].Name then ESPObjects[character].Name:Remove() end
+    if ESPObjects[character].Health then ESPObjects[character].Health:Remove() end
+    if ESPObjects[character].Distance then ESPObjects[character].Distance:Remove() end
+    
+    ESPObjects[character] = nil
+end
+
+local function UpdateESP(character, isTarget, isTeammate)
+    if not ESPObjects[character] then CreateESP(character) end
+    
+    local espFolder = ESPObjects[character]
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local head = character:FindFirstChild("Head")
+    
+    if not rootPart or not humanoid or humanoid.Health <= 0 then
+        -- Hide all ESP elements
+        for _, line in pairs(espFolder.Box) do line.Visible = false end
+        if espFolder.Tracer then espFolder.Tracer.Visible = false end
+        if espFolder.Name then espFolder.Name.Visible = false end
+        if espFolder.Health then espFolder.Health.Visible = false end
+        if espFolder.Distance then espFolder.Distance.Visible = false end
+        return
+    end
+    
+    -- Determine ESP color based on state
+    local espColor = getgenv().Config.ESPColor
+    if isTarget then
+        espColor = getgenv().Config.TargetColor -- Red for locked target
+    elseif isTeammate then
+        espColor = getgenv().Config.TeamColor -- Green for teammates
+    end
+    
+    -- Get player info
+    local player = Players:GetPlayerFromCharacter(character)
+    local displayName = player and player.Name or character.Name
+    
+    -- Calculate screen position
+    local rootPos, rootVis = Camera:WorldToViewportPoint(rootPart.Position)
+    local headPos = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0)) or rootPos
+    local legPos = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
+    
+    if rootVis then
+        -- Calculate box size
+        local height = math.abs(headPos.Y - legPos.Y)
+        local width = height / 2
+        
+        -- Box ESP
+        if getgenv().Config.ESPEnabled then
+            local topLeft = Vector2.new(rootPos.X - width/2, headPos.Y)
+            local topRight = Vector2.new(rootPos.X + width/2, headPos.Y)
+            local bottomLeft = Vector2.new(rootPos.X - width/2, legPos.Y)
+            local bottomRight = Vector2.new(rootPos.X + width/2, legPos.Y)
+            
+            -- Top line
+            espFolder.Box[1].From = topLeft
+            espFolder.Box[1].To = topRight
+            espFolder.Box[1].Visible = true
+            espFolder.Box[1].Color = espColor
+            espFolder.Box[1].Thickness = isTarget and 2.5 or 1.5 -- Thicker for target
+            
+            -- Bottom line
+            espFolder.Box[2].From = bottomLeft
+            espFolder.Box[2].To = bottomRight
+            espFolder.Box[2].Visible = true
+            espFolder.Box[2].Color = espColor
+            espFolder.Box[2].Thickness = isTarget and 2.5 or 1.5
+            
+            -- Left line
+            espFolder.Box[3].From = topLeft
+            espFolder.Box[3].To = bottomLeft
+            espFolder.Box[3].Visible = true
+            espFolder.Box[3].Color = espColor
+            espFolder.Box[3].Thickness = isTarget and 2.5 or 1.5
+            
+            -- Right line
+            espFolder.Box[4].From = topRight
+            espFolder.Box[4].To = bottomRight
+            espFolder.Box[4].Visible = true
+            espFolder.Box[4].Color = espColor
+            espFolder.Box[4].Thickness = isTarget and 2.5 or 1.5
+        else
+            for _, line in pairs(espFolder.Box) do line.Visible = false end
+        end
+        
+        -- Tracer ESP
+        if getgenv().Config.TracerEnabled and espFolder.Tracer then
+            local tracerStart
+            if getgenv().Config.TracerOrigin == "Bottom" then
+                tracerStart = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+            elseif getgenv().Config.TracerOrigin == "Center" then
+                tracerStart = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            else -- Mouse
+                tracerStart = UIS:GetMouseLocation()
+            end
+            
+            espFolder.Tracer.From = tracerStart
+            espFolder.Tracer.To = Vector2.new(rootPos.X, rootPos.Y)
+            espFolder.Tracer.Visible = true
+            espFolder.Tracer.Color = espColor
+            espFolder.Tracer.Thickness = isTarget and 2.5 or 1.5 -- Thicker for target
+        else
+            if espFolder.Tracer then espFolder.Tracer.Visible = false end
+        end
+        
+        -- Name ESP
+        if getgenv().Config.NameESP and espFolder.Name then
+            local namePrefix = ""
+            if isTarget then namePrefix = "[TARGET] " end
+            if isTeammate then namePrefix = "[TEAM] " end
+            
+            espFolder.Name.Text = namePrefix .. displayName
+            espFolder.Name.Position = Vector2.new(rootPos.X, headPos.Y - 20)
+            espFolder.Name.Visible = true
+            espFolder.Name.Color = espColor
+            espFolder.Name.Size = isTarget and 18 or 16 -- Bigger text for target
+        else
+            if espFolder.Name then espFolder.Name.Visible = false end
+        end
+        
+        -- Health ESP
+        if getgenv().Config.HealthESP and espFolder.Health then
+            local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+            espFolder.Health.Text = tostring(healthPercent) .. "%"
+            espFolder.Health.Position = Vector2.new(rootPos.X, legPos.Y + 5)
+            espFolder.Health.Visible = true
+            
+            -- Color based on health
+            if healthPercent > 75 then
+                espFolder.Health.Color = Color3.fromRGB(0, 255, 0)
+            elseif healthPercent > 50 then
+                espFolder.Health.Color = Color3.fromRGB(255, 255, 0)
+            elseif healthPercent > 25 then
+                espFolder.Health.Color = Color3.fromRGB(255, 165, 0)
+            else
+                espFolder.Health.Color = Color3.fromRGB(255, 0, 0)
+            end
+        else
+            if espFolder.Health then espFolder.Health.Visible = false end
+        end
+        
+        -- Distance ESP
+        if getgenv().Config.DistanceESP and espFolder.Distance and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = math.floor((LP.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude)
+            espFolder.Distance.Text = tostring(distance) .. "m"
+            espFolder.Distance.Position = Vector2.new(rootPos.X, legPos.Y + 20)
+            espFolder.Distance.Visible = true
+            espFolder.Distance.Color = Color3.fromRGB(255, 255, 255)
+        else
+            if espFolder.Distance then espFolder.Distance.Visible = false end
+        end
+    else
+        -- Not visible, hide all
+        for _, line in pairs(espFolder.Box) do line.Visible = false end
+        if espFolder.Tracer then espFolder.Tracer.Visible = false end
+        if espFolder.Name then espFolder.Name.Visible = false end
+        if espFolder.Health then espFolder.Health.Visible = false end
+        if espFolder.Distance then espFolder.Distance.Visible = false end
+    end
+end
+
+--// HELPER: BULLET TRACER
+local function CreateBulletTracer(from, to)
+    if not getgenv().Config.BulletTracers then return end
+    local p = Instance.new("Part", workspace)
+    p.Anchored = true; p.CanCollide = false; p.Transparency = 1
+    p.Size = Vector3.new(0.1, 0.1, 0.1)
+    local a0 = Instance.new("Attachment", p); a0.WorldPosition = from
+    local a1 = Instance.new("Attachment", p); a1.WorldPosition = to
+    local b = Instance.new("Beam", p)
+    b.Attachment0 = a0; b.Attachment1 = a1; b.Color = ColorSequence.new(getgenv().Config.TargetColor)
+    b.Width0 = 0.15; b.Width1 = 0.15; b.FaceCamera = true
+    b.LightEmission = 1; b.LightInfluence = 0
+    game:GetService("Debris"):AddItem(p, 0.5)
+end
+
+--// CROSSHAIR DRAWING
+local Crosshair = {
+    Horizontal = Drawing.new("Line"),
+    Vertical = Drawing.new("Line")
+}
+
+local function UpdateCrosshair()
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local size = getgenv().Config.CrosshairSize
+    
+    if getgenv().Config.ShowCrosshair then
+        -- Horizontal line
+        Crosshair.Horizontal.From = Vector2.new(center.X - size, center.Y)
+        Crosshair.Horizontal.To = Vector2.new(center.X + size, center.Y)
+        Crosshair.Horizontal.Color = getgenv().Config.CrosshairColor
+        Crosshair.Horizontal.Thickness = getgenv().Config.CrosshairThickness
+        Crosshair.Horizontal.Visible = true
+        
+        -- Vertical line
+        Crosshair.Vertical.From = Vector2.new(center.X, center.Y - size)
+        Crosshair.Vertical.To = Vector2.new(center.X, center.Y + size)
+        Crosshair.Vertical.Color = getgenv().Config.CrosshairColor
+        Crosshair.Vertical.Thickness = getgenv().Config.CrosshairThickness
+        Crosshair.Vertical.Visible = true
+    else
+        Crosshair.Horizontal.Visible = false
+        Crosshair.Vertical.Visible = false
+    end
+end
+
+--// CURSOR LOCK FUNCTION
+local function UpdateCursorLock()
+    if not getgenv().Config.CursorLock or not Locked or not IsAiming then return end
+    
+    local targetPos = Locked.Position
+    
+    -- Apply prediction for cursor lock
+    if getgenv().Config.Prediction and Locked.Parent then
+        local predicted = GetPredictedPosition(Locked.Parent)
+        if predicted then
+            local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+            if aimPart then
+                targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+            end
+        end
+    end
+    
+    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+    
+    if onScreen then
+        local currentMouse = UIS:GetMouseLocation()
+        local targetMouse = Vector2.new(screenPos.X, screenPos.Y)
+        
+        -- Calculate distance to target
+        local distance = (targetMouse - currentMouse).Magnitude
+        
+        -- Only move if not already on target (prevents jittering)
+        if distance > 1 then
+            -- Apply smoothness
+            local smoothFactor = 1 - getgenv().Config.Smoothness
+            local newMouse = currentMouse:Lerp(targetMouse, smoothFactor)
+            
+            -- Calculate delta movement
+            local delta = newMouse - currentMouse
+            
+            -- Move cursor using relative movement
+            mousemoverel(delta.X, delta.Y)
+        end
+    end
+end
+
+--// METATABLE HOOKS
 local old; old = hookmetamethod(game, "__namecall", function(self, ...)
     local m = getnamecallmethod(); local a = {...}
     if not checkcaller() and getgenv().Config.Method1_Silent and Locked then
-        if m == "Raycast" then a[2] = (Locked.Position - a[1]).Unit * 1000; return old(self, unpack(a)) end
+        if m == "Raycast" then
+            local targetPos = Locked.Position
+            
+            -- Apply prediction
+            if getgenv().Config.Prediction and Locked.Parent then
+                local predicted = GetPredictedPosition(Locked.Parent)
+                if predicted then
+                    local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                    if aimPart then
+                        targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                    end
+                end
+            end
+            
+            a[2] = (targetPos - a[1]).Unit * 1000
+            CreateBulletTracer(a[1], targetPos)
+            return old(self, unpack(a)) 
+        end
+        
+        -- Auto shoot support
+        if m == "FireServer" or m == "InvokeServer" then
+            if getgenv().Config.AutoShoot then
+                return old(self, ...)
+            end
+        end
     end
     return old(self, ...)
 end)
 
 local oldI; oldI = hookmetamethod(game, "__index", function(self, idx)
     if not checkcaller() and getgenv().Config.Method2_Silent and Locked and self == Mouse then
-        if idx == "Hit" then return Locked.CFrame elseif idx == "Target" then return Locked end
+        if idx == "Hit" then 
+            local targetPos = Locked.Position
+            
+            -- Apply prediction
+            if getgenv().Config.Prediction and Locked.Parent then
+                local predicted = GetPredictedPosition(Locked.Parent)
+                if predicted then
+                    local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                    if aimPart then
+                        targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                    end
+                end
+            end
+            
+            return CFrame.new(targetPos)
+        elseif idx == "Target" then 
+            return Locked 
+        end
     end
     return oldI(self, idx)
 end)
 
-Rayfield:Notify({Title = "ASYLUM UNIFIED", Content = "All previous features are now active.", Duration = 4})
+--// UI TABS
+local CombatTab = Window:CreateTab("Combat", 4483362458)
+local VisualsTab = Window:CreateTab("Visuals", 4483345998)
+local MiscTab = Window:CreateTab("Character", 4483362458)
+local ItemTab = Window:CreateTab("Item Asylum", 4335489011)
+
+--- COMBAT ---
+CombatTab:CreateSection("Aimbot Settings")
+CombatTab:CreateToggle({Name = "Silent Aim (Raycast)", CurrentValue = false, Callback = function(v) getgenv().Config.Method1_Silent = v end})
+CombatTab:CreateToggle({Name = "Silent Aim (Mouse)", CurrentValue = false, Callback = function(v) getgenv().Config.Method2_Silent = v end})
+CombatTab:CreateToggle({Name = "Camera Aimbot", CurrentValue = false, Callback = function(v) getgenv().Config.CameraAim = v end})
+CombatTab:CreateToggle({Name = "Cursor Lock (Sticky Aim)", CurrentValue = false, Callback = function(v) getgenv().Config.CursorLock = v end})
+CombatTab:CreateToggle({Name = "Trigger Bot", CurrentValue = false, Callback = function(v) getgenv().Config.TriggerBot = v end})
+CombatTab:CreateToggle({Name = "Auto Shoot", CurrentValue = false, Callback = function(v) getgenv().Config.AutoShoot = v end})
+
+CombatTab:CreateSection("Targeting")
+CombatTab:CreateDropdown({Name = "Target Mode", Options = {"All", "Players", "NPCs"}, CurrentOption = {"All"}, Callback = function(v) getgenv().Config.TargetMode = v[1] end})
+CombatTab:CreateDropdown({Name = "Target Bone", Options = {"Head", "UpperTorso", "HumanoidRootPart", "LowerTorso"}, CurrentOption = {"Head"}, Callback = function(v) getgenv().Config.AimPart = v[1] end})
+CombatTab:CreateToggle({Name = "Sticky Target", CurrentValue = false, Callback = function(v) getgenv().Config.StickyTarget = v; if not v then StickyLockedTarget = nil end end})
+CombatTab:CreateToggle({Name = "Closest to Mouse", CurrentValue = true, Callback = function(v) getgenv().Config.ClosestToMouse = v end})
+CombatTab:CreateToggle({Name = "Require Aim Key (RMB)", CurrentValue = false, Callback = function(v) getgenv().Config.AimKeybind = v end})
+
+CombatTab:CreateSection("Aim Assist")
+CombatTab:CreateSlider({Name = "Smoothness", Range = {0, 1}, Increment = 0.01, CurrentValue = 0.2, Callback = function(v) getgenv().Config.Smoothness = v end})
+CombatTab:CreateSlider({Name = "Prediction", Range = {0, 0.5}, Increment = 0.01, CurrentValue = 0.13, Callback = function(v) getgenv().Config.Prediction = v end})
+CombatTab:CreateSlider({Name = "Shake Reduction %", Range = {0, 100}, Increment = 5, CurrentValue = 0, Callback = function(v) getgenv().Config.ShakeReduction = v end})
+
+CombatTab:CreateSection("FOV & Checks")
+CombatTab:CreateSlider({Name = "FOV Size", Range = {10, 800}, Increment = 5, CurrentValue = 150, Callback = function(v) getgenv().Config.FOVRadius = v end})
+CombatTab:CreateToggle({Name = "Wall Check", CurrentValue = true, Callback = function(v) getgenv().Config.WallCheck = v end})
+CombatTab:CreateToggle({Name = "Visible Check", CurrentValue = true, Callback = function(v) getgenv().Config.VisibleCheck = v end})
+CombatTab:CreateToggle({Name = "Ignore Downed", CurrentValue = true, Callback = function(v) getgenv().Config.IgnoreDowned = v end})
+
+CombatTab:CreateSection("Advanced Targeting")
+CombatTab:CreateToggle({Name = "Prioritize Low Health", CurrentValue = false, Callback = function(v) getgenv().Config.PrioritizeLowHealth = v end})
+CombatTab:CreateSlider({Name = "Health Threshold %", Range = {1, 100}, Increment = 1, CurrentValue = 50, Callback = function(v) getgenv().Config.HealthThreshold = v end})
+
+CombatTab:CreateSection("Resolver (Anti-Desync)")
+CombatTab:CreateToggle({Name = "Enable Resolver", CurrentValue = false, Callback = function(v) getgenv().Config.ResolverEnabled = v end})
+CombatTab:CreateDropdown({Name = "Resolver Method", Options = {"MoveDirection", "Velocity", "Hybrid"}, CurrentOption = {"MoveDirection"}, Callback = function(v) getgenv().Config.ResolverMethod = v[1] end})
+
+--- VISUALS ---
+VisualsTab:CreateSection("FOV Circle")
+VisualsTab:CreateToggle({Name = "Show FOV Circle", CurrentValue = true, Callback = function(v) getgenv().Config.ShowFOV = v end})
+VisualsTab:CreateToggle({Name = "FOV Filled", CurrentValue = false, Callback = function(v) getgenv().Config.FOVFilled = v end})
+VisualsTab:CreateSlider({Name = "Fill Transparency", Range = {0, 1}, Increment = 0.05, CurrentValue = 0.1, Callback = function(v) getgenv().Config.FOVFillTransparency = v end})
+
+VisualsTab:CreateSection("Crosshair")
+VisualsTab:CreateToggle({Name = "Show Crosshair", CurrentValue = false, Callback = function(v) getgenv().Config.ShowCrosshair = v end})
+VisualsTab:CreateSlider({Name = "Crosshair Size", Range = {5, 30}, Increment = 1, CurrentValue = 10, Callback = function(v) getgenv().Config.CrosshairSize = v end})
+VisualsTab:CreateSlider({Name = "Thickness", Range = {1, 5}, Increment = 0.5, CurrentValue = 2, Callback = function(v) getgenv().Config.CrosshairThickness = v end})
+VisualsTab:CreateColorPicker({Name = "Crosshair Color", Color = Color3.fromRGB(255, 255, 255), Callback = function(v) getgenv().Config.CrosshairColor = v end})
+
+VisualsTab:CreateSection("ESP Components")
+VisualsTab:CreateToggle({Name = "Box ESP", CurrentValue = false, Callback = function(v) getgenv().Config.ESPEnabled = v end})
+VisualsTab:CreateToggle({Name = "Name ESP", CurrentValue = false, Callback = function(v) getgenv().Config.NameESP = v end})
+VisualsTab:CreateToggle({Name = "Health ESP", CurrentValue = false, Callback = function(v) getgenv().Config.HealthESP = v end})
+VisualsTab:CreateToggle({Name = "Distance ESP", CurrentValue = false, Callback = function(v) getgenv().Config.DistanceESP = v end})
+VisualsTab:CreateToggle({Name = "Tracers", CurrentValue = false, Callback = function(v) getgenv().Config.TracerEnabled = v end})
+VisualsTab:CreateDropdown({Name = "Tracer Origin", Options = {"Bottom", "Center", "Mouse"}, CurrentOption = {"Bottom"}, Callback = function(v) getgenv().Config.TracerOrigin = v[1] end})
+VisualsTab:CreateToggle({Name = "Ghost (Wallhack)", CurrentValue = false, Callback = function(v) getgenv().Config.GhostESP = v end})
+VisualsTab:CreateToggle({Name = "Bullet Tracers", CurrentValue = false, Callback = function(v) getgenv().Config.BulletTracers = v end})
+
+VisualsTab:CreateSection("Color Settings")
+VisualsTab:CreateColorPicker({Name = "Enemy Color", Color = Color3.fromRGB(0, 255, 255), Callback = function(v) getgenv().Config.ESPColor = v end})
+VisualsTab:CreateColorPicker({Name = "Target Color", Color = Color3.fromRGB(255, 0, 0), Callback = function(v) getgenv().Config.TargetColor = v end})
+VisualsTab:CreateColorPicker({Name = "Team Color", Color = Color3.fromRGB(0, 255, 0), Callback = function(v) getgenv().Config.TeamColor = v end})
+
+VisualsTab:CreateSection("Team Settings")
+VisualsTab:CreateToggle({Name = "Team Check (No Target)", CurrentValue = true, Callback = function(v) getgenv().Config.TeamCheck = v end})
+VisualsTab:CreateToggle({Name = "Show Teammates ESP", CurrentValue = false, Callback = function(v) getgenv().Config.ShowTeammates = v end})
+
+--- CHARACTER & MOVEMENT ---
+MiscTab:CreateSection("Movement")
+MiscTab:CreateSlider({Name = "WalkSpeed", Range = {16, 200}, Increment = 1, CurrentValue = 16, Callback = function(v) getgenv().Config.WalkSpeed = v end})
+MiscTab:CreateSlider({Name = "Jump Power", Range = {50, 200}, Increment = 5, CurrentValue = 50, Callback = function(v) getgenv().Config.JumpPower = v end})
+MiscTab:CreateToggle({Name = "Infinite Jump", CurrentValue = false, Callback = function(v) getgenv().Config.InfJump = v end})
+MiscTab:CreateToggle({Name = "No-Tilt (Anti-Ragdoll)", CurrentValue = false, Callback = function(v) getgenv().Config.NoTilt = v end})
+MiscTab:CreateToggle({Name = "No Slowdown", CurrentValue = false, Callback = function(v) getgenv().Config.NoSlowdown = v end})
+MiscTab:CreateToggle({Name = "Auto Sprint", CurrentValue = false, Callback = function(v) getgenv().Config.AutoSprint = v end})
+
+MiscTab:CreateSection("Hitbox Mod")
+MiscTab:CreateToggle({Name = "Expand Hitboxes", CurrentValue = false, Callback = function(v) getgenv().Config.HitboxEnabled = v end})
+MiscTab:CreateSlider({Name = "Hitbox Size", Range = {2, 50}, Increment = 1, CurrentValue = 10, Callback = function(v) getgenv().Config.HitboxSize = v end})
+MiscTab:CreateSlider({Name = "Transparency", Range = {0, 1}, Increment = 0.1, CurrentValue = 0.7, Callback = function(v) getgenv().Config.HitboxTransparency = v end})
+
+--- ITEM ASYLUM ---
+ItemTab:CreateSection("Melee Hitbox Extender")
+ItemTab:CreateToggle({Name = "Enable Melee Extender", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeExtenderEnabled = v end})
+ItemTab:CreateSlider({Name = "Melee Range (Distance)", Range = {1, 30}, Increment = 0.5, CurrentValue = 5, Callback = function(v) getgenv().Config.MeleeRange = v end})
+ItemTab:CreateSlider({Name = "Hitbox Size", Range = {2, 20}, Increment = 0.5, CurrentValue = 8, Callback = function(v) getgenv().Config.MeleeHitboxSize = v end})
+ItemTab:CreateToggle({Name = "Auto Target Nearest", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeAutoTarget = v end})
+ItemTab:CreateToggle({Name = "Visualize Hitbox", CurrentValue = false, Callback = function(v) getgenv().Config.MeleeVisualize = v end})
+
+ItemTab:CreateSection("Info")
+ItemTab:CreateLabel("Range = How far from you")
+ItemTab:CreateLabel("Size = How big the hitbox is")
+ItemTab:CreateLabel("Auto Target = Follows enemies")
+
+--// CORE UNIFIED ENGINE
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+
+RunService.RenderStepped:Connect(function()
+    -- Character modifications
+    if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+        local hum = LP.Character.Humanoid
+        hum.WalkSpeed = getgenv().Config.WalkSpeed
+        hum.JumpPower = getgenv().Config.JumpPower
+        
+        if getgenv().Config.NoTilt then 
+            hum.PlatformStand = false 
+        end
+        
+        if getgenv().Config.NoSlowdown then
+            hum.WalkSpeed = getgenv().Config.WalkSpeed -- Override slowdowns
+        end
+    end
+
+    -- Update crosshair
+    UpdateCrosshair()
+    
+    -- Update cursor lock
+    UpdateCursorLock()
+    
+    -- Update melee hitbox extender
+    UpdateMeleeHitbox()
+
+    -- FOV Circle
+    FOVCircle.Visible = getgenv().Config.ShowFOV
+    FOVCircle.Radius = getgenv().Config.FOVRadius
+    FOVCircle.Position = UIS:GetMouseLocation()
+    FOVCircle.Color = getgenv().Config.ESPColor
+    FOVCircle.Filled = getgenv().Config.FOVFilled
+    FOVCircle.Transparency = getgenv().Config.FOVFilled and (1 - getgenv().Config.FOVFillTransparency) or 1
+    
+    -- Check if aim key is required
+    if getgenv().Config.AimKeybind then
+        IsAiming = UIS:IsMouseButtonPressed(getgenv().Config.AimKey)
+    else
+        IsAiming = true
+    end
+    
+    local pot, dist = nil, getgenv().Config.FOVRadius
+    local highestPriority = 0
+
+    -- Sticky target logic
+    if getgenv().Config.StickyTarget and StickyLockedTarget then
+        if StickyLockedTarget.Parent and IsTargetValid(StickyLockedTarget.Parent) then
+            local player = Players:GetPlayerFromCharacter(StickyLockedTarget.Parent)
+            local isTeammate = player and player.Team == LP.Team and player ~= LP
+            
+            if not (getgenv().Config.TeamCheck and isTeammate) then
+                pot = StickyLockedTarget
+            else
+                StickyLockedTarget = nil
+            end
+        else
+            StickyLockedTarget = nil
+        end
+    end
+
+    -- Target acquisition
+    if not pot or not getgenv().Config.StickyTarget then
+        for _, v in pairs(TargetCache) do
+            if v.Parent and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+                local char = v
+                local player = Players:GetPlayerFromCharacter(char)
+                
+                -- Check if teammate
+                local isTeammate = player and player.Team == LP.Team and player ~= LP
+                
+                -- Handle teammate ESP logic
+                if getgenv().Config.TeamCheck and isTeammate and not getgenv().Config.ShowTeammates then 
+                    RemoveESP(char)
+                    continue 
+                end
+                
+                local mode = getgenv().Config.TargetMode
+                local isValid = (mode == "All") or (mode == "Players" and player) or (mode == "NPCs" and not player)
+
+                if isValid and IsTargetValid(char) then
+                    local root = char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        -- Hitbox Logic
+                        if getgenv().Config.HitboxEnabled and not isTeammate then
+                            root.Size = Vector3.new(getgenv().Config.HitboxSize, getgenv().Config.HitboxSize, getgenv().Config.HitboxSize)
+                            root.Transparency = getgenv().Config.HitboxTransparency
+                            root.CanCollide = false
+                        else
+                            root.Size = Vector3.new(2,2,1)
+                            root.Transparency = 1
+                        end
+
+                        -- Chams/Ghost Logic
+                        if getgenv().Config.GhostESP then
+                            local hl = char:FindFirstChild("AsylumHighlight") or Instance.new("Highlight", char)
+                            hl.Name = "AsylumHighlight"
+                            hl.Enabled = true
+                            
+                            -- Color based on target/teammate status
+                            if Locked and Locked.Parent == char then
+                                hl.FillColor = getgenv().Config.TargetColor
+                            elseif isTeammate then
+                                hl.FillColor = getgenv().Config.TeamColor
+                            else
+                                hl.FillColor = getgenv().Config.ESPColor
+                            end
+                            
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        elseif char:FindFirstChild("AsylumHighlight") then
+                            char.AsylumHighlight.Enabled = false
+                        end
+
+                        -- Targeting logic (skip teammates if TeamCheck is on)
+                        if not (getgenv().Config.TeamCheck and isTeammate) and IsAiming then
+                            local aim = char:FindFirstChild(getgenv().Config.AimPart) or root
+                            
+                            -- Apply resolver
+                            if getgenv().Config.ResolverEnabled then
+                                ResolveTarget(char)
+                            end
+                            
+                            local aPos, aOn = Camera:WorldToViewportPoint(aim.Position)
+                            if aOn then
+                                local mDist
+                                if getgenv().Config.ClosestToMouse then
+                                    mDist = (Vector2.new(aPos.X, aPos.Y) - UIS:GetMouseLocation()).Magnitude
+                                else
+                                    -- Closest to player
+                                    if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                                        mDist = (LP.Character.HumanoidRootPart.Position - aim.Position).Magnitude
+                                    else
+                                        mDist = math.huge
+                                    end
+                                end
+                                
+                                -- Priority system
+                                local priority = GetTargetPriority(char)
+                                
+                                if mDist < dist then
+                                    if not getgenv().Config.WallCheck or #Camera:GetPartsObscuringTarget({aim.Position}, {LP.Character, char}) == 0 then
+                                        if priority >= highestPriority then
+                                            pot = aim
+                                            dist = mDist
+                                            highestPriority = priority
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Update ESP with target and teammate status
+                    local isCurrentTarget = Locked and Locked.Parent == char
+                    UpdateESP(char, isCurrentTarget, isTeammate)
+                else
+                    RemoveESP(char)
+                end
+            else
+                RemoveESP(v)
+            end
+        end
+    end
+    
+    Locked = pot
+    
+    -- Update sticky target
+    if getgenv().Config.StickyTarget and Locked then
+        StickyLockedTarget = Locked
+    end
+    
+    -- Camera aimbot
+    if Locked and getgenv().Config.CameraAim and IsAiming then
+        local targetPos = Locked.Position
+        
+        -- Apply prediction
+        if getgenv().Config.Prediction and Locked.Parent then
+            local predicted = GetPredictedPosition(Locked.Parent)
+            if predicted then
+                local aimPart = Locked.Parent:FindFirstChild(getgenv().Config.AimPart)
+                if aimPart then
+                    targetPos = predicted + (aimPart.Position - Locked.Parent.HumanoidRootPart.Position)
+                end
+            end
+        end
+        
+        -- Smooth camera aim
+        local camCFrame = Camera.CFrame
+        local targetLook = (targetPos - camCFrame.Position).Unit
+        local currentLook = camCFrame.LookVector
+        
+        -- Apply smoothness
+        local smoothFactor = 1 - getgenv().Config.Smoothness
+        local newLook = currentLook:Lerp(targetLook, smoothFactor)
+        
+        Camera.CFrame = CFrame.new(camCFrame.Position, camCFrame.Position + newLook)
+    end
+    
+    -- Trigger bot
+    if getgenv().Config.TriggerBot and Locked and IsAiming then
+        local mousePos = UIS:GetMouseLocation()
+        local aimPos, aimVis = Camera:WorldToViewportPoint(Locked.Position)
+        
+        if aimVis then
+            local distance = (Vector2.new(aimPos.X, aimPos.Y) - mousePos).Magnitude
+            if distance < 20 then -- Within 20 pixels
+                mouse1press()
+                task.wait(0.05)
+                mouse1release()
+            end
+        end
+    end
+end)
+
+--// Cleanup on character death/removal
+workspace.DescendantRemoving:Connect(function(v)
+    if v:IsA("Model") and ESPObjects[v] then
+        RemoveESP(v)
+    end
+end)
+
+--// Input Handlers
+UIS.JumpRequest:Connect(function() 
+    if getgenv().Config.InfJump and LP.Character then 
+        LP.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping") 
+    end 
+end)
+
+Rayfield:Notify({Title = "ASYLUM ELITE V17.3", Content = "Advanced Combat + Cursor Lock Loaded!", Duration = 5})
